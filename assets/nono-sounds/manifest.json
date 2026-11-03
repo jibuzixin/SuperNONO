@@ -1,0 +1,934 @@
+{
+  "name": "nono-sounds",
+  "description": "超能 NONO 的音效资源（与动画资产分开存放）",
+  "source": "NONO形态与动作_20261021/资源/nono/super/action/*.swf 内嵌的 sou 类（FFDec 提取）",
+  "extractedBy": "_work/tools/extract_sounds_final.sh（FFDec -export sound）",
+  "format": "MP3（11025 Hz 单声道 / 22050 Hz / 44100 Hz 立体声，随原 SWF）",
+  "note": "形态 1 有 6 个动作带内嵌音效；**充电、4 个表情、八方向走路在原资源里就没有音效**（不是没找到，是原 SWF 里没有 sou 类），客户端仍会 play(0, loops)，声音需宿主另行注入。",
+  "actionConfig": [
+    {
+      "id": 1,
+      "name": "充电",
+      "autoEnd": 0,
+      "souLoops": 999999,
+      "animationLoop": false,
+      "hasSound": false,
+      "note": "autoEnd=0：客户端末帧不派发 PLAY_COMPLETE、不切回走路，动作停在末帧"
+    },
+    {
+      "id": 2,
+      "name": "开机",
+      "autoEnd": 1,
+      "souLoops": 1,
+      "animationLoop": false,
+      "hasSound": true,
+      "note": "autoEnd=1：末帧派发 PLAY_COMPLETE 并切回走路"
+    },
+    {
+      "id": 3,
+      "name": "关机",
+      "autoEnd": 0,
+      "souLoops": 1,
+      "animationLoop": false,
+      "hasSound": true,
+      "note": "autoEnd=0：客户端末帧不派发 PLAY_COMPLETE、不切回走路，动作停在末帧"
+    },
+    {
+      "id": 4,
+      "name": "玩球",
+      "autoEnd": 1,
+      "souLoops": 1,
+      "animationLoop": false,
+      "hasSound": true,
+      "note": "autoEnd=1：末帧派发 PLAY_COMPLETE 并切回走路"
+    },
+    {
+      "id": 5,
+      "name": "吃电池",
+      "autoEnd": 1,
+      "souLoops": 1,
+      "animationLoop": false,
+      "hasSound": true,
+      "note": "autoEnd=1：末帧派发 PLAY_COMPLETE 并切回走路"
+    },
+    {
+      "id": 6,
+      "name": "召唤",
+      "autoEnd": 1,
+      "souLoops": 1,
+      "animationLoop": false,
+      "hasSound": true,
+      "note": "autoEnd=1：末帧派发 PLAY_COMPLETE 并切回走路"
+    },
+    {
+      "id": 7,
+      "name": "玩魔方",
+      "autoEnd": 1,
+      "souLoops": 1,
+      "animationLoop": false,
+      "hasSound": true,
+      "note": "autoEnd=1：末帧派发 PLAY_COMPLETE 并切回走路"
+    }
+  ],
+  "sounds": [
+    {
+      "id": "action_ball",
+      "actionId": "action_ball",
+      "action": "ball",
+      "file": "sounds/action_ball.mp3",
+      "format": "MP3",
+      "bytes": 18304,
+      "sha256": "cd7bc2f6ab2d34c333c4f5d7f971a89f4df6a142e4b61bd55e15153df4da19b1",
+      "duration": 9.152,
+      "durationSeconds": 9.152,
+      "sampleRate": 11025,
+      "channels": 1,
+      "bitrate": null,
+      "form": "形态 1（主用）",
+      "source": {
+        "swf": "NONO形态与动作_20261021/资源/nono/super/action/4_1.swf",
+        "embeddedAs": "class sou extends Sound（[Embed(source=\"/_assets/1_sou.mp3\")]）",
+        "stage": 1
+      }
+    },
+    {
+      "id": "action_ball_s2",
+      "actionId": "action_ball",
+      "action": "ball",
+      "file": "sounds/action_ball_s2.mp3",
+      "format": "MP3",
+      "bytes": 10504,
+      "sha256": "5ce71dce18d22f5020597a9e28687de287f7c8482bd6ab9df0ce888374e4631b",
+      "duration": 5.252,
+      "durationSeconds": 5.252,
+      "sampleRate": 11025,
+      "channels": 1,
+      "bitrate": null,
+      "form": "形态 2（变体）",
+      "source": {
+        "swf": "NONO形态与动作_20261021/资源/nono/super/action/4_2.swf",
+        "embeddedAs": "class sou extends Sound（[Embed(source=\"/_assets/1_sou.mp3\")]）",
+        "stage": 2
+      }
+    },
+    {
+      "id": "action_ball_s3",
+      "actionId": "action_ball",
+      "action": "ball",
+      "file": "sounds/action_ball_s3.mp3",
+      "format": "MP3",
+      "bytes": 12064,
+      "sha256": "134621c36003a7207b873c933f0762f2e19ee7f2c004e7df9551bd237720cd15",
+      "duration": 6.032,
+      "durationSeconds": 6.032,
+      "sampleRate": 11025,
+      "channels": 1,
+      "bitrate": null,
+      "form": "形态 3（变体）",
+      "source": {
+        "swf": "NONO形态与动作_20261021/资源/nono/super/action/4_3.swf",
+        "embeddedAs": "class sou extends Sound（[Embed(source=\"/_assets/1_sou.mp3\")]）",
+        "stage": 3
+      }
+    },
+    {
+      "id": "action_ball_s4",
+      "actionId": "action_ball",
+      "action": "ball",
+      "file": "sounds/action_ball_s4.mp3",
+      "format": "MP3",
+      "bytes": 24336,
+      "sha256": "4d91671ee5e35a08112e97b674e7dd506bceec11a659098f9be063ffcac3be83",
+      "duration": 12.168,
+      "durationSeconds": 12.168,
+      "sampleRate": 11025,
+      "channels": 1,
+      "bitrate": null,
+      "form": "形态 4（变体）",
+      "source": {
+        "swf": "NONO形态与动作_20261021/资源/nono/super/action/4_4.swf",
+        "embeddedAs": "class sou extends Sound（[Embed(source=\"/_assets/1_sou.mp3\")]）",
+        "stage": 4
+      }
+    },
+    {
+      "id": "action_ball_s5",
+      "actionId": "action_ball",
+      "action": "ball",
+      "file": "sounds/action_ball_s5.mp3",
+      "format": "MP3",
+      "bytes": 248686,
+      "sha256": "de8ce11762b46cb74df9fe87ae22099bdbb9e5799e7fad74c3515e7200af91c2",
+      "duration": 12.434,
+      "durationSeconds": 12.434,
+      "sampleRate": 44100,
+      "channels": 2,
+      "bitrate": null,
+      "form": "形态 5（变体）",
+      "source": {
+        "swf": "NONO形态与动作_20261021/资源/nono/super/action/4_5.swf",
+        "embeddedAs": "class sou extends Sound（[Embed(source=\"/_assets/1_sou.mp3\")]）",
+        "stage": 5
+      }
+    },
+    {
+      "id": "action_battery",
+      "actionId": "action_battery",
+      "action": "battery",
+      "file": "sounds/action_battery.mp3",
+      "format": "MP3",
+      "bytes": 17576,
+      "sha256": "62a5b79c2c239b019c0904817198dbbb631b5529f9928891e8cf6e87a84d6017",
+      "duration": 8.788,
+      "durationSeconds": 8.788,
+      "sampleRate": 11025,
+      "channels": 1,
+      "bitrate": null,
+      "form": "形态 1（主用）",
+      "source": {
+        "swf": "NONO形态与动作_20261021/资源/nono/super/action/5_1.swf",
+        "embeddedAs": "class sou extends Sound（[Embed(source=\"/_assets/1_sou.mp3\")]）",
+        "stage": 1
+      }
+    },
+    {
+      "id": "action_battery_s2",
+      "actionId": "action_battery",
+      "action": "battery",
+      "file": "sounds/action_battery_s2.mp3",
+      "format": "MP3",
+      "bytes": 18408,
+      "sha256": "eb748fc75d982631fefc10c50143500b648f4db537d3b5d8d207233cf4a07d6a",
+      "duration": 9.204,
+      "durationSeconds": 9.204,
+      "sampleRate": 11025,
+      "channels": 1,
+      "bitrate": null,
+      "form": "形态 2（变体）",
+      "source": {
+        "swf": "NONO形态与动作_20261021/资源/nono/super/action/5_2.swf",
+        "embeddedAs": "class sou extends Sound（[Embed(source=\"/_assets/1_sou.mp3\")]）",
+        "stage": 2
+      }
+    },
+    {
+      "id": "action_battery_s3",
+      "actionId": "action_battery",
+      "action": "battery",
+      "file": "sounds/action_battery_s3.mp3",
+      "format": "MP3",
+      "bytes": 18928,
+      "sha256": "8a18baf1ad347963d970c87bddd47ddc86df8c40d3b9021a8101f257271d149c",
+      "duration": 9.464,
+      "durationSeconds": 9.464,
+      "sampleRate": 11025,
+      "channels": 1,
+      "bitrate": null,
+      "form": "形态 3（变体）",
+      "source": {
+        "swf": "NONO形态与动作_20261021/资源/nono/super/action/5_3.swf",
+        "embeddedAs": "class sou extends Sound（[Embed(source=\"/_assets/1_sou.mp3\")]）",
+        "stage": 3
+      }
+    },
+    {
+      "id": "action_battery_s4",
+      "actionId": "action_battery",
+      "action": "battery",
+      "file": "sounds/action_battery_s4.mp3",
+      "format": "MP3",
+      "bytes": 22568,
+      "sha256": "700c064b9cd3da96beb26d55a37864ded6c34425e051ee2ee2154a5dbdf29963",
+      "duration": 11.284,
+      "durationSeconds": 11.284,
+      "sampleRate": 11025,
+      "channels": 1,
+      "bitrate": null,
+      "form": "形态 4（变体）",
+      "source": {
+        "swf": "NONO形态与动作_20261021/资源/nono/super/action/5_4.swf",
+        "embeddedAs": "class sou extends Sound（[Embed(source=\"/_assets/1_sou.mp3\")]）",
+        "stage": 4
+      }
+    },
+    {
+      "id": "action_boot",
+      "actionId": "action_boot",
+      "action": "boot",
+      "file": "sounds/action_boot.mp3",
+      "format": "MP3",
+      "bytes": 11336,
+      "sha256": "cd3030a1ebff7eb2ab4241dd251b4cdcafeb2a5c2bd568f6144736a202ff907b",
+      "duration": 5.668,
+      "durationSeconds": 5.668,
+      "sampleRate": 11025,
+      "channels": 1,
+      "bitrate": null,
+      "form": "形态 1（主用）",
+      "source": {
+        "swf": "NONO形态与动作_20261021/资源/nono/super/action/2_1.swf",
+        "embeddedAs": "class sou extends Sound（[Embed(source=\"/_assets/1_sou.mp3\")]）",
+        "stage": 1
+      }
+    },
+    {
+      "id": "action_boot_s2",
+      "actionId": "action_boot",
+      "action": "boot",
+      "file": "sounds/action_boot_s2.mp3",
+      "format": "MP3",
+      "bytes": 6448,
+      "sha256": "937b0837d2eff7a17db331e9b630c2af5763bbd4f2bb8ff99fc6543ef97ab3d8",
+      "duration": 3.224,
+      "durationSeconds": 3.224,
+      "sampleRate": 11025,
+      "channels": 1,
+      "bitrate": null,
+      "form": "形态 2（变体）",
+      "source": {
+        "swf": "NONO形态与动作_20261021/资源/nono/super/action/2_2.swf",
+        "embeddedAs": "class sou extends Sound（[Embed(source=\"/_assets/1_sou.mp3\")]）",
+        "stage": 2
+      }
+    },
+    {
+      "id": "action_boot_s3",
+      "actionId": "action_boot",
+      "action": "boot",
+      "file": "sounds/action_boot_s3.mp3",
+      "format": "MP3",
+      "bytes": 5928,
+      "sha256": "c0f4486ea839d92393bc4cf58adbe177712472c8e99fb5970579148029cfcc41",
+      "duration": 2.964,
+      "durationSeconds": 2.964,
+      "sampleRate": 11025,
+      "channels": 1,
+      "bitrate": null,
+      "form": "形态 3（变体）",
+      "source": {
+        "swf": "NONO形态与动作_20261021/资源/nono/super/action/2_3.swf",
+        "embeddedAs": "class sou extends Sound（[Embed(source=\"/_assets/1_sou.mp3\")]）",
+        "stage": 3
+      }
+    },
+    {
+      "id": "action_boot_s4",
+      "actionId": "action_boot",
+      "action": "boot",
+      "file": "sounds/action_boot_s4.mp3",
+      "format": "MP3",
+      "bytes": 6448,
+      "sha256": "42d1073fcd351edd5c699708da3ca18abe08b77813fc18627e5b81a2bef34c1c",
+      "duration": 3.224,
+      "durationSeconds": 3.224,
+      "sampleRate": 11025,
+      "channels": 1,
+      "bitrate": null,
+      "form": "形态 4（变体）",
+      "source": {
+        "swf": "NONO形态与动作_20261021/资源/nono/super/action/2_4.swf",
+        "embeddedAs": "class sou extends Sound（[Embed(source=\"/_assets/1_sou.mp3\")]）",
+        "stage": 4
+      }
+    },
+    {
+      "id": "action_boot_s5",
+      "actionId": "action_boot",
+      "action": "boot",
+      "file": "sounds/action_boot_s5.mp3",
+      "format": "MP3",
+      "bytes": 64784,
+      "sha256": "4c8c6333d5798459828607f3071fb5507211fe96ddc0b65fc28e3828c7e1c727",
+      "duration": 3.239,
+      "durationSeconds": 3.239,
+      "sampleRate": 44100,
+      "channels": 2,
+      "bitrate": null,
+      "form": "形态 5（变体）",
+      "source": {
+        "swf": "NONO形态与动作_20261021/资源/nono/super/action/2_5.swf",
+        "embeddedAs": "class sou extends Sound（[Embed(source=\"/_assets/1_sou.mp3\")]）",
+        "stage": 5
+      }
+    },
+    {
+      "id": "action_cube",
+      "actionId": "action_cube",
+      "action": "cube",
+      "file": "sounds/action_cube.mp3",
+      "format": "MP3",
+      "bytes": 24024,
+      "sha256": "d69c158fb480f100d0f7b2cdb7a96614b16fc15e5d3dabfd8f2044a394d7ebcd",
+      "duration": 12.012,
+      "durationSeconds": 12.012,
+      "sampleRate": 11025,
+      "channels": 1,
+      "bitrate": null,
+      "form": "形态 1（主用）",
+      "source": {
+        "swf": "NONO形态与动作_20261021/资源/nono/super/action/7_1.swf",
+        "embeddedAs": "class sou extends Sound（[Embed(source=\"/_assets/1_sou.mp3\")]）",
+        "stage": 1
+      }
+    },
+    {
+      "id": "action_cube_s2",
+      "actionId": "action_cube",
+      "action": "cube",
+      "file": "sounds/action_cube_s2.mp3",
+      "format": "MP3",
+      "bytes": 20384,
+      "sha256": "2edb799b30e0d537368da0af4de7073f1b30fd57736f19a2ee21d03902da84e1",
+      "duration": 10.192,
+      "durationSeconds": 10.192,
+      "sampleRate": 11025,
+      "channels": 1,
+      "bitrate": null,
+      "form": "形态 2（变体）",
+      "source": {
+        "swf": "NONO形态与动作_20261021/资源/nono/super/action/7_2.swf",
+        "embeddedAs": "class sou extends Sound（[Embed(source=\"/_assets/1_sou.mp3\")]）",
+        "stage": 2
+      }
+    },
+    {
+      "id": "action_cube_s3",
+      "actionId": "action_cube",
+      "action": "cube",
+      "file": "sounds/action_cube_s3.mp3",
+      "format": "MP3",
+      "bytes": 20384,
+      "sha256": "597eca6ca576a9591e189b79cf6f6156acaf99f435619e227239fee6c81ee3d5",
+      "duration": 10.192,
+      "durationSeconds": 10.192,
+      "sampleRate": 11025,
+      "channels": 1,
+      "bitrate": null,
+      "form": "形态 3（变体）",
+      "source": {
+        "swf": "NONO形态与动作_20261021/资源/nono/super/action/7_3.swf",
+        "embeddedAs": "class sou extends Sound（[Embed(source=\"/_assets/1_sou.mp3\")]）",
+        "stage": 3
+      }
+    },
+    {
+      "id": "action_cube_s4",
+      "actionId": "action_cube",
+      "action": "cube",
+      "file": "sounds/action_cube_s4.mp3",
+      "format": "MP3",
+      "bytes": 19760,
+      "sha256": "8fefd53175fc6ea78412a2dcd0b480e46dbb84570b0a419e3c402697279ed17f",
+      "duration": 9.88,
+      "durationSeconds": 9.88,
+      "sampleRate": 11025,
+      "channels": 1,
+      "bitrate": null,
+      "form": "形态 4（变体）",
+      "source": {
+        "swf": "NONO形态与动作_20261021/资源/nono/super/action/7_4.swf",
+        "embeddedAs": "class sou extends Sound（[Embed(source=\"/_assets/1_sou.mp3\")]）",
+        "stage": 4
+      }
+    },
+    {
+      "id": "action_cube_s5",
+      "actionId": "action_cube",
+      "action": "cube",
+      "file": "sounds/action_cube_s5.mp3",
+      "format": "MP3",
+      "bytes": 258612,
+      "sha256": "f4becef848cc1376e51e96626548ad9ab1240cdef727d09b9dc27397379b8f07",
+      "duration": 12.931,
+      "durationSeconds": 12.931,
+      "sampleRate": 44100,
+      "channels": 2,
+      "bitrate": null,
+      "form": "形态 5（变体）",
+      "source": {
+        "swf": "NONO形态与动作_20261021/资源/nono/super/action/7_5.swf",
+        "embeddedAs": "class sou extends Sound（[Embed(source=\"/_assets/1_sou.mp3\")]）",
+        "stage": 5
+      }
+    },
+    {
+      "id": "action_shutdown",
+      "actionId": "action_shutdown",
+      "action": "shutdown",
+      "file": "sounds/action_shutdown.mp3",
+      "format": "MP3",
+      "bytes": 4160,
+      "sha256": "0752a1a224371aa89022bafb30ca9c16c9d3131ad5b53306cb635b545056e54d",
+      "duration": 2.08,
+      "durationSeconds": 2.08,
+      "sampleRate": 11025,
+      "channels": 1,
+      "bitrate": null,
+      "form": "形态 1（主用）",
+      "source": {
+        "swf": "NONO形态与动作_20261021/资源/nono/super/action/3_1.swf",
+        "embeddedAs": "class sou extends Sound（[Embed(source=\"/_assets/1_sou.mp3\")]）",
+        "stage": 1
+      }
+    },
+    {
+      "id": "action_shutdown_s2",
+      "actionId": "action_shutdown",
+      "action": "shutdown",
+      "file": "sounds/action_shutdown_s2.mp3",
+      "format": "MP3",
+      "bytes": 6136,
+      "sha256": "76e9dc6e5d1d9f15c58b16bb8e505c5d4466f916c281a544f9c4811b36b9cd56",
+      "duration": 3.068,
+      "durationSeconds": 3.068,
+      "sampleRate": 11025,
+      "channels": 1,
+      "bitrate": null,
+      "form": "形态 2（变体）",
+      "source": {
+        "swf": "NONO形态与动作_20261021/资源/nono/super/action/3_2.swf",
+        "embeddedAs": "class sou extends Sound（[Embed(source=\"/_assets/1_sou.mp3\")]）",
+        "stage": 2
+      }
+    },
+    {
+      "id": "action_shutdown_s3",
+      "actionId": "action_shutdown",
+      "action": "shutdown",
+      "file": "sounds/action_shutdown_s3.mp3",
+      "format": "MP3",
+      "bytes": 4680,
+      "sha256": "a9697032372b1a830f7971d165a90c8fe610a976e25ce345dc114f5865bbfe95",
+      "duration": 2.34,
+      "durationSeconds": 2.34,
+      "sampleRate": 11025,
+      "channels": 1,
+      "bitrate": null,
+      "form": "形态 3（变体）",
+      "source": {
+        "swf": "NONO形态与动作_20261021/资源/nono/super/action/3_3.swf",
+        "embeddedAs": "class sou extends Sound（[Embed(source=\"/_assets/1_sou.mp3\")]）",
+        "stage": 3
+      }
+    },
+    {
+      "id": "action_shutdown_s4",
+      "actionId": "action_shutdown",
+      "action": "shutdown",
+      "file": "sounds/action_shutdown_s4.mp3",
+      "format": "MP3",
+      "bytes": 6448,
+      "sha256": "8dd791bbd42edf61a27e0ce0cd4fc2fbe8563126db80ee7e284a74129dc8ba05",
+      "duration": 3.224,
+      "durationSeconds": 3.224,
+      "sampleRate": 11025,
+      "channels": 1,
+      "bitrate": null,
+      "form": "形态 4（变体）",
+      "source": {
+        "swf": "NONO形态与动作_20261021/资源/nono/super/action/3_4.swf",
+        "embeddedAs": "class sou extends Sound（[Embed(source=\"/_assets/1_sou.mp3\")]）",
+        "stage": 4
+      }
+    },
+    {
+      "id": "action_shutdown_s5",
+      "actionId": "action_shutdown",
+      "action": "shutdown",
+      "file": "sounds/action_shutdown_s5.mp3",
+      "format": "MP3",
+      "bytes": 45976,
+      "sha256": "f60658f89b82b27f1687c3c68324207977d1c6b13c100fae77b575acde69e141",
+      "duration": 2.299,
+      "durationSeconds": 2.299,
+      "sampleRate": 44100,
+      "channels": 2,
+      "bitrate": null,
+      "form": "形态 5（变体）",
+      "source": {
+        "swf": "NONO形态与动作_20261021/资源/nono/super/action/3_5.swf",
+        "embeddedAs": "class sou extends Sound（[Embed(source=\"/_assets/1_sou.mp3\")]）",
+        "stage": 5
+      }
+    },
+    {
+      "id": "action_summon",
+      "actionId": "action_summon",
+      "action": "summon",
+      "file": "sounds/action_summon.mp3",
+      "format": "MP3",
+      "bytes": 10920,
+      "sha256": "ff3489a1aab07eadf21115b09a01ef84b0981a002b18f13bb91a4c6b5b1639e4",
+      "duration": 5.46,
+      "durationSeconds": 5.46,
+      "sampleRate": 11025,
+      "channels": 1,
+      "bitrate": null,
+      "form": "形态 1（主用）",
+      "source": {
+        "swf": "NONO形态与动作_20261021/资源/nono/super/action/6_1.swf",
+        "embeddedAs": "class sou extends Sound（[Embed(source=\"/_assets/1_sou.mp3\")]）",
+        "stage": 1
+      }
+    },
+    {
+      "id": "action_summon_s2",
+      "actionId": "action_summon",
+      "action": "summon",
+      "file": "sounds/action_summon_s2.mp3",
+      "format": "MP3",
+      "bytes": 25624,
+      "sha256": "e3dee290626fec9d8abe2636d98a132a4c8e44b5726bdd306355eeaef605aa04",
+      "duration": 6.406,
+      "durationSeconds": 6.406,
+      "sampleRate": 11025,
+      "channels": 2,
+      "bitrate": null,
+      "form": "形态 2（变体）",
+      "source": {
+        "swf": "NONO形态与动作_20261021/资源/nono/super/action/6_2.swf",
+        "embeddedAs": "class sou extends Sound（[Embed(source=\"/_assets/1_sou.mp3\")]）",
+        "stage": 2
+      }
+    },
+    {
+      "id": "action_summon_s3",
+      "actionId": "action_summon",
+      "action": "summon",
+      "file": "sounds/action_summon_s3.mp3",
+      "format": "MP3",
+      "bytes": 8008,
+      "sha256": "512e9989f6a61d1a84c8804602a73284eb5d1d8e8eb4b5ba3b30dad46d1e3962",
+      "duration": 4.004,
+      "durationSeconds": 4.004,
+      "sampleRate": 11025,
+      "channels": 1,
+      "bitrate": null,
+      "form": "形态 3（变体）",
+      "source": {
+        "swf": "NONO形态与动作_20261021/资源/nono/super/action/6_3.swf",
+        "embeddedAs": "class sou extends Sound（[Embed(source=\"/_assets/1_sou.mp3\")]）",
+        "stage": 3
+      }
+    },
+    {
+      "id": "action_summon_s4",
+      "actionId": "action_summon",
+      "action": "summon",
+      "file": "sounds/action_summon_s4.mp3",
+      "format": "MP3",
+      "bytes": 6760,
+      "sha256": "c27c49633945d6caad511945e849c6e3206ee00ef20d9fb18107f4ed1714bc02",
+      "duration": 3.38,
+      "durationSeconds": 3.38,
+      "sampleRate": 11025,
+      "channels": 1,
+      "bitrate": null,
+      "form": "形态 4（变体）",
+      "source": {
+        "swf": "NONO形态与动作_20261021/资源/nono/super/action/6_4.swf",
+        "embeddedAs": "class sou extends Sound（[Embed(source=\"/_assets/1_sou.mp3\")]）",
+        "stage": 4
+      }
+    },
+    {
+      "id": "action_summon_s5",
+      "actionId": "action_summon",
+      "action": "summon",
+      "file": "sounds/action_summon_s5.mp3",
+      "format": "MP3",
+      "bytes": 88294,
+      "sha256": "5ac3610e70b27e905d5cf0c3a49d9c38610918b617eeb7885f3581966567f5b3",
+      "duration": 4.415,
+      "durationSeconds": 4.415,
+      "sampleRate": 44100,
+      "channels": 2,
+      "bitrate": null,
+      "form": "形态 5（变体）",
+      "source": {
+        "swf": "NONO形态与动作_20261021/资源/nono/super/action/6_5.swf",
+        "embeddedAs": "class sou extends Sound（[Embed(source=\"/_assets/1_sou.mp3\")]）",
+        "stage": 5
+      }
+    }
+  ],
+  "bindings": [
+    {
+      "animation": "assets/nono-form1-actions/nono1_action_charge.json",
+      "kind": "action",
+      "id": 1,
+      "slug": "charge",
+      "name": "充电",
+      "audio": {
+        "soundId": "action_charge",
+        "file": null,
+        "status": "missing-from-source",
+        "trigger": "动作开始播放时（与动画 goToAndPlay(0) 同时，客户端在 gotoAndPlay 之后调用 play）",
+        "loops": 999999,
+        "loopNote": "999999 = 音效无限循环（配置表 souLoops），直到下一个动作/表情开始时被 _sc.stop() 掐断；动画本身仍播完停在末帧（autoEnd=0）",
+        "stop": "下一个动作/表情开始前停止（客户端 clearActionMC() 里 _sc.stop()）",
+        "playAs3": "_sc = _sound.play(0, 999999);   // Sound 对象来自 SWF 内嵌的 sou 类",
+        "playWeb": "const a = new Audio(url); a.loop = true; a.play();",
+        "source": "资源包里没有这个音效（SWF 里没有 sou 类），需宿主另行提供"
+      },
+      "variants": []
+    },
+    {
+      "animation": "assets/nono-form1-actions/nono1_action_boot.json",
+      "kind": "action",
+      "id": 2,
+      "slug": "boot",
+      "name": "开机",
+      "audio": {
+        "soundId": "action_boot",
+        "file": "nono-sounds/sounds/action_boot.mp3",
+        "status": "ok",
+        "trigger": "动作开始播放时（与动画 goToAndPlay(0) 同时，客户端在 gotoAndPlay 之后调用 play）",
+        "loops": 1,
+        "loopNote": "播 1 次",
+        "stop": "下一个动作/表情开始前停止（客户端 clearActionMC() 里 _sc.stop()）",
+        "playAs3": "_sc = _sound.play(0, 1);   // Sound 对象来自 SWF 内嵌的 sou 类",
+        "playWeb": "const a = new Audio(url); a.loop = false; a.play();",
+        "source": "SWF 内嵌 sou 类（super/action/2_1.swf）"
+      },
+      "variants": [
+        "sounds/action_boot_s2.mp3",
+        "sounds/action_boot_s3.mp3",
+        "sounds/action_boot_s4.mp3",
+        "sounds/action_boot_s5.mp3"
+      ]
+    },
+    {
+      "animation": "assets/nono-form1-actions/nono1_action_shutdown.json",
+      "kind": "action",
+      "id": 3,
+      "slug": "shutdown",
+      "name": "关机",
+      "audio": {
+        "soundId": "action_shutdown",
+        "file": "nono-sounds/sounds/action_shutdown.mp3",
+        "status": "ok",
+        "trigger": "动作开始播放时（与动画 goToAndPlay(0) 同时，客户端在 gotoAndPlay 之后调用 play）",
+        "loops": 1,
+        "loopNote": "播 1 次",
+        "stop": "下一个动作/表情开始前停止（客户端 clearActionMC() 里 _sc.stop()）",
+        "playAs3": "_sc = _sound.play(0, 1);   // Sound 对象来自 SWF 内嵌的 sou 类",
+        "playWeb": "const a = new Audio(url); a.loop = false; a.play();",
+        "source": "SWF 内嵌 sou 类（super/action/3_1.swf）"
+      },
+      "variants": [
+        "sounds/action_shutdown_s2.mp3",
+        "sounds/action_shutdown_s3.mp3",
+        "sounds/action_shutdown_s4.mp3",
+        "sounds/action_shutdown_s5.mp3"
+      ]
+    },
+    {
+      "animation": "assets/nono-form1-actions/nono1_action_ball.json",
+      "kind": "action",
+      "id": 4,
+      "slug": "ball",
+      "name": "玩球",
+      "audio": {
+        "soundId": "action_ball",
+        "file": "nono-sounds/sounds/action_ball.mp3",
+        "status": "ok",
+        "trigger": "动作开始播放时（与动画 goToAndPlay(0) 同时，客户端在 gotoAndPlay 之后调用 play）",
+        "loops": 1,
+        "loopNote": "播 1 次",
+        "stop": "下一个动作/表情开始前停止（客户端 clearActionMC() 里 _sc.stop()）",
+        "playAs3": "_sc = _sound.play(0, 1);   // Sound 对象来自 SWF 内嵌的 sou 类",
+        "playWeb": "const a = new Audio(url); a.loop = false; a.play();",
+        "source": "SWF 内嵌 sou 类（super/action/4_1.swf）"
+      },
+      "variants": [
+        "sounds/action_ball_s2.mp3",
+        "sounds/action_ball_s3.mp3",
+        "sounds/action_ball_s4.mp3",
+        "sounds/action_ball_s5.mp3"
+      ]
+    },
+    {
+      "animation": "assets/nono-form1-actions/nono1_action_battery.json",
+      "kind": "action",
+      "id": 5,
+      "slug": "battery",
+      "name": "吃电池",
+      "audio": {
+        "soundId": "action_battery",
+        "file": "nono-sounds/sounds/action_battery.mp3",
+        "status": "ok",
+        "trigger": "动作开始播放时（与动画 goToAndPlay(0) 同时，客户端在 gotoAndPlay 之后调用 play）",
+        "loops": 1,
+        "loopNote": "播 1 次",
+        "stop": "下一个动作/表情开始前停止（客户端 clearActionMC() 里 _sc.stop()）",
+        "playAs3": "_sc = _sound.play(0, 1);   // Sound 对象来自 SWF 内嵌的 sou 类",
+        "playWeb": "const a = new Audio(url); a.loop = false; a.play();",
+        "source": "SWF 内嵌 sou 类（super/action/5_1.swf）"
+      },
+      "variants": [
+        "sounds/action_battery_s2.mp3",
+        "sounds/action_battery_s3.mp3",
+        "sounds/action_battery_s4.mp3"
+      ]
+    },
+    {
+      "animation": "assets/nono-form1-actions/nono1_action_summon.json",
+      "kind": "action",
+      "id": 6,
+      "slug": "summon",
+      "name": "召唤",
+      "audio": {
+        "soundId": "action_summon",
+        "file": "nono-sounds/sounds/action_summon.mp3",
+        "status": "ok",
+        "trigger": "动作开始播放时（与动画 goToAndPlay(0) 同时，客户端在 gotoAndPlay 之后调用 play）",
+        "loops": 1,
+        "loopNote": "播 1 次",
+        "stop": "下一个动作/表情开始前停止（客户端 clearActionMC() 里 _sc.stop()）",
+        "playAs3": "_sc = _sound.play(0, 1);   // Sound 对象来自 SWF 内嵌的 sou 类",
+        "playWeb": "const a = new Audio(url); a.loop = false; a.play();",
+        "source": "SWF 内嵌 sou 类（super/action/6_1.swf）"
+      },
+      "variants": [
+        "sounds/action_summon_s2.mp3",
+        "sounds/action_summon_s3.mp3",
+        "sounds/action_summon_s4.mp3",
+        "sounds/action_summon_s5.mp3"
+      ]
+    },
+    {
+      "animation": "assets/nono-form1-actions/nono1_action_cube.json",
+      "kind": "action",
+      "id": 7,
+      "slug": "cube",
+      "name": "玩魔方",
+      "audio": {
+        "soundId": "action_cube",
+        "file": "nono-sounds/sounds/action_cube.mp3",
+        "status": "ok",
+        "trigger": "动作开始播放时（与动画 goToAndPlay(0) 同时，客户端在 gotoAndPlay 之后调用 play）",
+        "loops": 1,
+        "loopNote": "播 1 次",
+        "stop": "下一个动作/表情开始前停止（客户端 clearActionMC() 里 _sc.stop()）",
+        "playAs3": "_sc = _sound.play(0, 1);   // Sound 对象来自 SWF 内嵌的 sou 类",
+        "playWeb": "const a = new Audio(url); a.loop = false; a.play();",
+        "source": "SWF 内嵌 sou 类（super/action/7_1.swf）"
+      },
+      "variants": [
+        "sounds/action_cube_s2.mp3",
+        "sounds/action_cube_s3.mp3",
+        "sounds/action_cube_s4.mp3",
+        "sounds/action_cube_s5.mp3"
+      ]
+    },
+    {
+      "animation": "assets/nono-form1-expressions/nono1_exp_happy.json",
+      "kind": "expression",
+      "id": 1,
+      "slug": "happy",
+      "name": "开心",
+      "audio": {
+        "soundId": "exp_happy",
+        "file": null,
+        "status": "missing-from-source",
+        "trigger": "表情开始播放时（与动画 goToAndPlay(0) 同时）",
+        "loops": 1,
+        "loopNote": "播 1 次（客户端写死 play(0,1)；配置表 <exp> 段没有 souLoops）",
+        "stop": "下一个动作/表情开始前停止",
+        "playAs3": "_sc = _sound.play(0, 1);",
+        "playWeb": "const a = new Audio(url); a.play();",
+        "source": "资源包里所有形态的表情 SWF 都没有 sou 类 → 音效需宿主另行提供"
+      },
+      "variants": []
+    },
+    {
+      "animation": "assets/nono-form1-expressions/nono1_exp_angry.json",
+      "kind": "expression",
+      "id": 2,
+      "slug": "angry",
+      "name": "生气",
+      "audio": {
+        "soundId": "exp_angry",
+        "file": null,
+        "status": "missing-from-source",
+        "trigger": "表情开始播放时（与动画 goToAndPlay(0) 同时）",
+        "loops": 1,
+        "loopNote": "播 1 次（客户端写死 play(0,1)；配置表 <exp> 段没有 souLoops）",
+        "stop": "下一个动作/表情开始前停止",
+        "playAs3": "_sc = _sound.play(0, 1);",
+        "playWeb": "const a = new Audio(url); a.play();",
+        "source": "资源包里所有形态的表情 SWF 都没有 sou 类 → 音效需宿主另行提供"
+      },
+      "variants": []
+    },
+    {
+      "animation": "assets/nono-form1-expressions/nono1_exp_surprise.json",
+      "kind": "expression",
+      "id": 3,
+      "slug": "surprise",
+      "name": "惊讶",
+      "audio": {
+        "soundId": "exp_surprise",
+        "file": null,
+        "status": "missing-from-source",
+        "trigger": "表情开始播放时（与动画 goToAndPlay(0) 同时）",
+        "loops": 1,
+        "loopNote": "播 1 次（客户端写死 play(0,1)；配置表 <exp> 段没有 souLoops）",
+        "stop": "下一个动作/表情开始前停止",
+        "playAs3": "_sc = _sound.play(0, 1);",
+        "playWeb": "const a = new Audio(url); a.play();",
+        "source": "资源包里所有形态的表情 SWF 都没有 sou 类 → 音效需宿主另行提供"
+      },
+      "variants": []
+    },
+    {
+      "animation": "assets/nono-form1-expressions/nono1_exp_sad.json",
+      "kind": "expression",
+      "id": 4,
+      "slug": "sad",
+      "name": "悲哀",
+      "audio": {
+        "soundId": "exp_sad",
+        "file": null,
+        "status": "missing-from-source",
+        "trigger": "表情开始播放时（与动画 goToAndPlay(0) 同时）",
+        "loops": 1,
+        "loopNote": "播 1 次（客户端写死 play(0,1)；配置表 <exp> 段没有 souLoops）",
+        "stop": "下一个动作/表情开始前停止",
+        "playAs3": "_sc = _sound.play(0, 1);",
+        "playWeb": "const a = new Audio(url); a.play();",
+        "source": "资源包里所有形态的表情 SWF 都没有 sou 类 → 音效需宿主另行提供"
+      },
+      "variants": []
+    },
+    {
+      "animation": "assets/nono-form1-walk/nono1_*.json",
+      "kind": "walk",
+      "id": 0,
+      "slug": "walk",
+      "name": "八方向走路",
+      "audio": {
+        "soundId": null,
+        "file": null,
+        "status": "none",
+        "trigger": null,
+        "loops": 0,
+        "loopNote": "走路没有音效（客户端只做 gotoAndStop(direction)）",
+        "stop": null,
+        "playAs3": null,
+        "playWeb": null,
+        "source": "客户端 NonoModel.as 的走路分支不涉及 Sound"
+      },
+      "variants": []
+    }
+  ],
+  "rules": {
+    "动作": "动画 gotoAndPlay(0) 之后立刻 _sound.play(0, souLoops)；souLoops 来自配置表 <action> 段（充电 999999 = 无限循环，其余 1）",
+    "表情": "动画 gotoAndPlay(0) 之后立刻 _sound.play(0, 1)（配置表 <exp> 段没有 souLoops）",
+    "走路": "无音效",
+    "停止": "下一个动作/表情开始前 clearActionMC() 里 _sc.stop()",
+    "Sound来源": "动作 SWF 内嵌的 sou 类，宿主把它作为 param1[1] 传给模型",
+    "autoEnd（管动画，不管声音）": "autoEnd=0（充电、关机）：末帧不派发 PLAY_COMPLETE、不切回走路，动作停在末帧；autoEnd=1（其余 5 个）：末帧派发完成事件并切回走路。**所有动作的动画都是 loop:false** —— autoEnd=0 不等于循环播放。"
+  }
+}

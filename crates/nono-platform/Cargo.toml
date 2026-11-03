@@ -1,0 +1,23 @@
+[package]
+name = "nono-platform"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "Window, transparent presentation, tray and platform glue for the NONO desktop pet."
+
+[dependencies]
+nono-core.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+image.workspace = true
+winit = "0.30"
+tray-icon = "0.26"
+
+[target.'cfg(target_os = "macos")'.dependencies]
+objc2 = "0.6"
+objc2-foundation = "0.3"
+objc2-core-foundation = "0.3"
+objc2-app-kit = { version = "0.3", features = ["NSApplication", "NSWindow", "NSView", "NSScreen", "NSSound"] }
+objc2-core-graphics = { version = "0.3", features = ["CGImage", "CGColorSpace", "CGDataProvider"] }
+objc2-quartz-core = { version = "0.3", features = ["CALayer", "CATransaction"] }

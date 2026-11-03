@@ -1,0 +1,14 @@
+[package]
+name = "nono-render"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "ThorVG-backed Lottie renderer for the NONO desktop pet."
+
+[dependencies]
+nono-core.workspace = true
+thiserror.workspace = true
+tracing.workspace = true
+image.workspace = true
+thorvg = { version = "0.6", default-features = false, features = ["vendored", "lottie", "std"] }

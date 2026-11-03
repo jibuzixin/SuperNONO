@@ -1,0 +1,178 @@
+{
+  "name": "nono-form1-expressions",
+  "form": 1,
+  "description": "超能 NONO 形态 1 的 4 个表情动画（Lottie）",
+  "source": "NONO形态与动作_20261021/资源/nono/super/exp/{1..4}_1.swf",
+  "frameRate": 25,
+  "walkPetAnchor": [
+    32.69999999999999,
+    90.35000000000002
+  ],
+  "audioManifest": "assets/nono-sounds/manifest.json",
+  "expressions": [
+    {
+      "id": 1,
+      "slug": "happy",
+      "name": "开心",
+      "file": "nono1_exp_happy.json",
+      "sourceFile": "exp/1_1.swf",
+      "bytes": 247893,
+      "sha256": "4aae5a65c57e01147c54cca62abd4ae6ea4952af928d47c3532c41f57796852a",
+      "frames": 94,
+      "canvas": [
+        188,
+        163
+      ],
+      "layers": 22,
+      "crop": [
+        179.95,
+        78.45
+      ],
+      "petAnchor": [
+        94.9,
+        158.1907
+      ],
+      "contentBBox": [
+        0.0,
+        7.19,
+        185.45,
+        162.66
+      ],
+      "audio": {
+        "soundId": "exp_happy",
+        "file": null,
+        "status": "missing-from-source",
+        "trigger": "表情开始播放时（与动画 goToAndPlay(0) 同时）",
+        "loops": 1,
+        "loopNote": "播 1 次（客户端写死 play(0,1)；配置表 <exp> 段没有 souLoops）",
+        "stop": "下一个动作/表情开始前停止",
+        "playAs3": "_sc = _sound.play(0, 1);",
+        "playWeb": "const a = new Audio(url); a.play();",
+        "source": "资源包里所有形态的表情 SWF 都没有 sou 类 → 音效需宿主另行提供"
+      }
+    },
+    {
+      "id": 2,
+      "slug": "angry",
+      "name": "生气",
+      "file": "nono1_exp_angry.json",
+      "sourceFile": "exp/2_1.swf",
+      "bytes": 304635,
+      "sha256": "e154bbec73276b6bbbfa6801d437e66530f88fa53dc20a9328ee70a9a29ae819",
+      "frames": 46,
+      "canvas": [
+        92,
+        106
+      ],
+      "layers": 60,
+      "crop": [
+        225.8,
+        136.45
+      ],
+      "petAnchor": [
+        49.0403,
+        100.2102
+      ],
+      "contentBBox": [
+        1.85,
+        0.49,
+        90.19,
+        105.08
+      ],
+      "audio": {
+        "soundId": "exp_angry",
+        "file": null,
+        "status": "missing-from-source",
+        "trigger": "表情开始播放时（与动画 goToAndPlay(0) 同时）",
+        "loops": 1,
+        "loopNote": "播 1 次（客户端写死 play(0,1)；配置表 <exp> 段没有 souLoops）",
+        "stop": "下一个动作/表情开始前停止",
+        "playAs3": "_sc = _sound.play(0, 1);",
+        "playWeb": "const a = new Audio(url); a.play();",
+        "source": "资源包里所有形态的表情 SWF 都没有 sou 类 → 音效需宿主另行提供"
+      }
+    },
+    {
+      "id": 3,
+      "slug": "surprise",
+      "name": "惊讶",
+      "file": "nono1_exp_surprise.json",
+      "sourceFile": "exp/3_1.swf",
+      "bytes": 204904,
+      "sha256": "6cae4bd6646ac3feb4f706862e68422bd97484af0c9d238034282431f11d3d7b",
+      "frames": 74,
+      "canvas": [
+        73,
+        99
+      ],
+      "layers": 49,
+      "crop": [
+        238.45,
+        142.75
+      ],
+      "petAnchor": [
+        36.3856,
+        93.8585
+      ],
+      "contentBBox": [
+        0.56,
+        0.46,
+        71.66,
+        98.73
+      ],
+      "audio": {
+        "soundId": "exp_surprise",
+        "file": null,
+        "status": "missing-from-source",
+        "trigger": "表情开始播放时（与动画 goToAndPlay(0) 同时）",
+        "loops": 1,
+        "loopNote": "播 1 次（客户端写死 play(0,1)；配置表 <exp> 段没有 souLoops）",
+        "stop": "下一个动作/表情开始前停止",
+        "playAs3": "_sc = _sound.play(0, 1);",
+        "playWeb": "const a = new Audio(url); a.play();",
+        "source": "资源包里所有形态的表情 SWF 都没有 sou 类 → 音效需宿主另行提供"
+      }
+    },
+    {
+      "id": 4,
+      "slug": "sad",
+      "name": "悲哀",
+      "file": "nono1_exp_sad.json",
+      "sourceFile": "exp/4_1.swf",
+      "bytes": 309450,
+      "sha256": "e8d224d6e80e65e85eafccf7607ceae39e8e325370762025c23c95aa0bb28bee",
+      "frames": 124,
+      "canvas": [
+        67,
+        96
+      ],
+      "layers": 67,
+      "crop": [
+        241.15,
+        146.25
+      ],
+      "petAnchor": [
+        33.6793,
+        90.35
+      ],
+      "contentBBox": [
+        0.54,
+        0.95,
+        65.96,
+        95.23
+      ],
+      "audio": {
+        "soundId": "exp_sad",
+        "file": null,
+        "status": "missing-from-source",
+        "trigger": "表情开始播放时（与动画 goToAndPlay(0) 同时）",
+        "loops": 1,
+        "loopNote": "播 1 次（客户端写死 play(0,1)；配置表 <exp> 段没有 souLoops）",
+        "stop": "下一个动作/表情开始前停止",
+        "playAs3": "_sc = _sound.play(0, 1);",
+        "playWeb": "const a = new Audio(url); a.play();",
+        "source": "资源包里所有形态的表情 SWF 都没有 sou 类 → 音效需宿主另行提供"
+      }
+    }
+  ]
+}

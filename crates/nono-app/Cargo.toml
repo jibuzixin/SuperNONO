@@ -1,0 +1,28 @@
+[package]
+name = "nono-app"
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+description = "超能 NONO desktop pet."
+
+[[bin]]
+name = "nono"
+path = "src/main.rs"
+
+[dependencies]
+nono-core.workspace = true
+nono-render.workspace = true
+nono-platform.workspace = true
+nono-agent.workspace = true
+nono-plugin.workspace = true
+anyhow.workspace = true
+serde.workspace = true
+serde_json.workspace = true
+toml.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+rand.workspace = true
+image.workspace = true
+winit = "0.30"
+tokio.workspace = true

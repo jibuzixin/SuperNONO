@@ -1,0 +1,27 @@
+{
+  "name": "nono-form2-walk",
+  "form": 2,
+  "fr": 25,
+  "op": 19,
+  "w": 76,
+  "h": 83,
+  "source": "NONO\u5f62\u6001\u4e0e\u52a8\u4f5c_20261021/\u8d44\u6e90/nono/super/nono_2.swf",
+  "petAnchor": [
+    37.0155,
+    76.5725
+  ],
+  "crop": [
+    153.5345,
+    166.5275
+  ],
+  "sizes": {
+    "down": 125046,
+    "leftdown": 121174,
+    "left": 121170,
+    "leftup": 203445,
+    "up": 109046,
+    "rightup": 201138,
+    "right": 120476,
+    "rightdown": 120480
+  }
+}

@@ -1,0 +1,1316 @@
+{
+  "format_version": 1,
+  "name": "超能 NONO",
+  "generated_by": "tools/build_catalog.py",
+  "note": "运行时唯一素材入口；由各目录 manifest.json + meta.json 归一化生成，不要手改。",
+  "default_form": 1,
+  "forms": [
+    {
+      "id": 1,
+      "name": "形态 1",
+      "fps": 25,
+      "walk": {
+        "pet_anchor": [
+          32.7219,
+          90.4
+        ],
+        "directions": {
+          "down": {
+            "file": "nono-form1-walk/nono1_down.json",
+            "canvas": [
+              66,
+              96
+            ],
+            "frames": 13,
+            "fps": 25,
+            "pet_anchor": [
+              32.7219,
+              90.4
+            ],
+            "loop": true,
+            "audio": null
+          },
+          "leftdown": {
+            "file": "nono-form1-walk/nono1_leftdown.json",
+            "canvas": [
+              66,
+              96
+            ],
+            "frames": 13,
+            "fps": 25,
+            "pet_anchor": [
+              32.7219,
+              90.4
+            ],
+            "loop": true,
+            "audio": null
+          },
+          "left": {
+            "file": "nono-form1-walk/nono1_left.json",
+            "canvas": [
+              66,
+              96
+            ],
+            "frames": 13,
+            "fps": 25,
+            "pet_anchor": [
+              32.7219,
+              90.4
+            ],
+            "loop": true,
+            "audio": null
+          },
+          "leftup": {
+            "file": "nono-form1-walk/nono1_leftup.json",
+            "canvas": [
+              66,
+              96
+            ],
+            "frames": 13,
+            "fps": 25,
+            "pet_anchor": [
+              32.7219,
+              90.4
+            ],
+            "loop": true,
+            "audio": null
+          },
+          "up": {
+            "file": "nono-form1-walk/nono1_up.json",
+            "canvas": [
+              66,
+              96
+            ],
+            "frames": 13,
+            "fps": 25,
+            "pet_anchor": [
+              32.7219,
+              90.4
+            ],
+            "loop": true,
+            "audio": null
+          },
+          "rightup": {
+            "file": "nono-form1-walk/nono1_rightup.json",
+            "canvas": [
+              66,
+              96
+            ],
+            "frames": 13,
+            "fps": 25,
+            "pet_anchor": [
+              32.7219,
+              90.4
+            ],
+            "loop": true,
+            "audio": null
+          },
+          "right": {
+            "file": "nono-form1-walk/nono1_right.json",
+            "canvas": [
+              66,
+              96
+            ],
+            "frames": 13,
+            "fps": 25,
+            "pet_anchor": [
+              32.7219,
+              90.4
+            ],
+            "loop": true,
+            "audio": null
+          },
+          "rightdown": {
+            "file": "nono-form1-walk/nono1_rightdown.json",
+            "canvas": [
+              66,
+              96
+            ],
+            "frames": 13,
+            "fps": 25,
+            "pet_anchor": [
+              32.7219,
+              90.4
+            ],
+            "loop": true,
+            "audio": null
+          }
+        },
+        "idle_direction": "down",
+        "idle_frame": 0
+      },
+      "actions": [
+        {
+          "id": 1,
+          "slug": "charge",
+          "name": "充电",
+          "file": "nono-form1-actions/nono1_action_charge.json",
+          "canvas": [
+            66,
+            96
+          ],
+          "frames": 62,
+          "fps": 25,
+          "pet_anchor": [
+            32.7,
+            90.35
+          ],
+          "content_bbox": [
+            15.65,
+            49.4,
+            49.65,
+            95.15
+          ],
+          "loop": false,
+          "auto_end": false,
+          "audio": null
+        },
+        {
+          "id": 2,
+          "slug": "boot",
+          "name": "开机",
+          "file": "nono-form1-actions/nono1_action_boot.json",
+          "canvas": [
+            132,
+            243
+          ],
+          "frames": 170,
+          "fps": 25,
+          "pet_anchor": [
+            64.1549,
+            216.45
+          ],
+          "content_bbox": [
+            -0.01,
+            0.05,
+            131.57,
+            242.81
+          ],
+          "loop": false,
+          "auto_end": true,
+          "audio": {
+            "file": "nono-sounds/sounds/action_boot.mp3",
+            "loops": 1,
+            "loop_until_stop": false,
+            "stop": "下一个动作/表情开始前停止（客户端 clearActionMC() 里 _sc.stop()）"
+          }
+        },
+        {
+          "id": 3,
+          "slug": "shutdown",
+          "name": "关机",
+          "file": "nono-form1-actions/nono1_action_shutdown.json",
+          "canvas": [
+            190,
+            246
+          ],
+          "frames": 165,
+          "fps": 25,
+          "pet_anchor": [
+            94.5,
+            239.2
+          ],
+          "content_bbox": [
+            0.0,
+            0.0,
+            189.4,
+            245.63
+          ],
+          "loop": false,
+          "auto_end": false,
+          "audio": {
+            "file": "nono-sounds/sounds/action_shutdown.mp3",
+            "loops": 1,
+            "loop_until_stop": false,
+            "stop": "下一个动作/表情开始前停止（客户端 clearActionMC() 里 _sc.stop()）"
+          }
+        },
+        {
+          "id": 4,
+          "slug": "ball",
+          "name": "玩球",
+          "file": "nono-form1-actions/nono1_action_ball.json",
+          "canvas": [
+            526,
+            303
+          ],
+          "frames": 206,
+          "fps": 25,
+          "pet_anchor": [
+            148.5716,
+            296.8821
+          ],
+          "content_bbox": [
+            0.49,
+            2.28,
+            522.3,
+            302.42
+          ],
+          "loop": false,
+          "auto_end": true,
+          "audio": {
+            "file": "nono-sounds/sounds/action_ball.mp3",
+            "loops": 1,
+            "loop_until_stop": false,
+            "stop": "下一个动作/表情开始前停止（客户端 clearActionMC() 里 _sc.stop()）"
+          }
+        },
+        {
+          "id": 5,
+          "slug": "battery",
+          "name": "吃电池",
+          "file": "nono-form1-actions/nono1_action_battery.json",
+          "canvas": [
+            399,
+            186
+          ],
+          "frames": 185,
+          "fps": 25,
+          "pet_anchor": [
+            54.147,
+            180.3653
+          ],
+          "content_bbox": [
+            3.14,
+            1.57,
+            398.6,
+            185.73
+          ],
+          "loop": false,
+          "auto_end": true,
+          "audio": {
+            "file": "nono-sounds/sounds/action_battery.mp3",
+            "loops": 1,
+            "loop_until_stop": false,
+            "stop": "下一个动作/表情开始前停止（客户端 clearActionMC() 里 _sc.stop()）"
+          }
+        },
+        {
+          "id": 6,
+          "slug": "summon",
+          "name": "召唤",
+          "file": "nono-form1-actions/nono1_action_summon.json",
+          "canvas": [
+            370,
+            132
+          ],
+          "frames": 106,
+          "fps": 25,
+          "pet_anchor": [
+            61.3836,
+            125.7699
+          ],
+          "content_bbox": [
+            7.85,
+            7.89,
+            369.11,
+            131.03
+          ],
+          "loop": false,
+          "auto_end": true,
+          "audio": {
+            "file": "nono-sounds/sounds/action_summon.mp3",
+            "loops": 1,
+            "loop_until_stop": false,
+            "stop": "下一个动作/表情开始前停止（客户端 clearActionMC() 里 _sc.stop()）"
+          }
+        },
+        {
+          "id": 7,
+          "slug": "cube",
+          "name": "玩魔方",
+          "file": "nono-form1-actions/nono1_action_cube.json",
+          "canvas": [
+            276,
+            318
+          ],
+          "frames": 263,
+          "fps": 25,
+          "pet_anchor": [
+            50.714,
+            221.5581
+          ],
+          "content_bbox": [
+            -0.39,
+            -0.01,
+            275.34,
+            317.74
+          ],
+          "loop": false,
+          "auto_end": true,
+          "audio": {
+            "file": "nono-sounds/sounds/action_cube.mp3",
+            "loops": 1,
+            "loop_until_stop": false,
+            "stop": "下一个动作/表情开始前停止（客户端 clearActionMC() 里 _sc.stop()）"
+          }
+        }
+      ],
+      "expressions": [
+        {
+          "id": 1,
+          "slug": "happy",
+          "name": "开心",
+          "file": "nono-form1-expressions/nono1_exp_happy.json",
+          "canvas": [
+            188,
+            163
+          ],
+          "frames": 94,
+          "fps": 25,
+          "pet_anchor": [
+            94.9,
+            158.1907
+          ],
+          "content_bbox": [
+            0.0,
+            7.19,
+            185.45,
+            162.66
+          ],
+          "loop": false,
+          "auto_end": true,
+          "audio": null
+        },
+        {
+          "id": 2,
+          "slug": "angry",
+          "name": "生气",
+          "file": "nono-form1-expressions/nono1_exp_angry.json",
+          "canvas": [
+            92,
+            106
+          ],
+          "frames": 46,
+          "fps": 25,
+          "pet_anchor": [
+            49.0403,
+            100.2102
+          ],
+          "content_bbox": [
+            1.85,
+            0.49,
+            90.19,
+            105.08
+          ],
+          "loop": false,
+          "auto_end": true,
+          "audio": null
+        },
+        {
+          "id": 3,
+          "slug": "surprise",
+          "name": "惊讶",
+          "file": "nono-form1-expressions/nono1_exp_surprise.json",
+          "canvas": [
+            73,
+            99
+          ],
+          "frames": 74,
+          "fps": 25,
+          "pet_anchor": [
+            36.3856,
+            93.8585
+          ],
+          "content_bbox": [
+            0.56,
+            0.46,
+            71.66,
+            98.73
+          ],
+          "loop": false,
+          "auto_end": true,
+          "audio": null
+        },
+        {
+          "id": 4,
+          "slug": "sad",
+          "name": "悲哀",
+          "file": "nono-form1-expressions/nono1_exp_sad.json",
+          "canvas": [
+            67,
+            96
+          ],
+          "frames": 124,
+          "fps": 25,
+          "pet_anchor": [
+            33.6793,
+            90.35
+          ],
+          "content_bbox": [
+            0.54,
+            0.95,
+            65.96,
+            95.23
+          ],
+          "loop": false,
+          "auto_end": true,
+          "audio": null
+        }
+      ]
+    },
+    {
+      "id": 2,
+      "name": "形态 2",
+      "fps": 25,
+      "walk": {
+        "pet_anchor": [
+          37.0155,
+          76.5725
+        ],
+        "directions": {
+          "down": {
+            "file": "nono-form2-walk/nono2_down.json",
+            "canvas": [
+              76,
+              83
+            ],
+            "frames": 19,
+            "fps": 25,
+            "pet_anchor": [
+              37.0155,
+              76.5725
+            ],
+            "loop": true,
+            "audio": null
+          },
+          "leftdown": {
+            "file": "nono-form2-walk/nono2_leftdown.json",
+            "canvas": [
+              76,
+              83
+            ],
+            "frames": 19,
+            "fps": 25,
+            "pet_anchor": [
+              37.0155,
+              76.5725
+            ],
+            "loop": true,
+            "audio": null
+          },
+          "left": {
+            "file": "nono-form2-walk/nono2_left.json",
+            "canvas": [
+              76,
+              83
+            ],
+            "frames": 19,
+            "fps": 25,
+            "pet_anchor": [
+              37.0155,
+              76.5725
+            ],
+            "loop": true,
+            "audio": null
+          },
+          "leftup": {
+            "file": "nono-form2-walk/nono2_leftup.json",
+            "canvas": [
+              76,
+              83
+            ],
+            "frames": 19,
+            "fps": 25,
+            "pet_anchor": [
+              37.0155,
+              76.5725
+            ],
+            "loop": true,
+            "audio": null
+          },
+          "up": {
+            "file": "nono-form2-walk/nono2_up.json",
+            "canvas": [
+              76,
+              83
+            ],
+            "frames": 19,
+            "fps": 25,
+            "pet_anchor": [
+              37.0155,
+              76.5725
+            ],
+            "loop": true,
+            "audio": null
+          },
+          "rightup": {
+            "file": "nono-form2-walk/nono2_rightup.json",
+            "canvas": [
+              76,
+              83
+            ],
+            "frames": 19,
+            "fps": 25,
+            "pet_anchor": [
+              37.0155,
+              76.5725
+            ],
+            "loop": true,
+            "audio": null
+          },
+          "right": {
+            "file": "nono-form2-walk/nono2_right.json",
+            "canvas": [
+              76,
+              83
+            ],
+            "frames": 19,
+            "fps": 25,
+            "pet_anchor": [
+              37.0155,
+              76.5725
+            ],
+            "loop": true,
+            "audio": null
+          },
+          "rightdown": {
+            "file": "nono-form2-walk/nono2_rightdown.json",
+            "canvas": [
+              76,
+              83
+            ],
+            "frames": 19,
+            "fps": 25,
+            "pet_anchor": [
+              37.0155,
+              76.5725
+            ],
+            "loop": true,
+            "audio": null
+          }
+        },
+        "idle_direction": "down",
+        "idle_frame": 0
+      },
+      "actions": [
+        {
+          "id": 1,
+          "slug": "charge",
+          "name": "充电",
+          "file": "nono-form2-actions/nono2_action_charge.json",
+          "canvas": [
+            76,
+            83
+          ],
+          "frames": 1,
+          "fps": 25,
+          "pet_anchor": [
+            37.0155,
+            76.5725
+          ],
+          "content_bbox": [
+            17.25,
+            46.25,
+            54.8,
+            80.85
+          ],
+          "loop": false,
+          "auto_end": false,
+          "audio": null
+        },
+        {
+          "id": 2,
+          "slug": "boot",
+          "name": "开机",
+          "file": "nono-form2-actions/nono2_action_boot.json",
+          "canvas": [
+            76,
+            86
+          ],
+          "frames": 91,
+          "fps": 25,
+          "pet_anchor": [
+            37.0155,
+            76.5725
+          ],
+          "content_bbox": [
+            10.8,
+            0.48,
+            63.8,
+            85.3
+          ],
+          "loop": false,
+          "auto_end": true,
+          "audio": {
+            "file": "nono-sounds/sounds/action_boot_s2.mp3",
+            "loops": 1,
+            "loop_until_stop": false,
+            "stop": "下一个动作/表情开始前停止（客户端 clearActionMC() 里 _sc.stop()）"
+          }
+        },
+        {
+          "id": 3,
+          "slug": "shutdown",
+          "name": "关机",
+          "file": "nono-form2-actions/nono2_action_shutdown.json",
+          "canvas": [
+            76,
+            83
+          ],
+          "frames": 61,
+          "fps": 25,
+          "pet_anchor": [
+            37.0155,
+            76.5725
+          ],
+          "content_bbox": [
+            10.2,
+            1.58,
+            63.8,
+            81.5
+          ],
+          "loop": false,
+          "auto_end": false,
+          "audio": {
+            "file": "nono-sounds/sounds/action_shutdown_s2.mp3",
+            "loops": 1,
+            "loop_until_stop": false,
+            "stop": "下一个动作/表情开始前停止（客户端 clearActionMC() 里 _sc.stop()）"
+          }
+        },
+        {
+          "id": 4,
+          "slug": "ball",
+          "name": "玩球",
+          "file": "nono-form2-actions/nono2_action_ball.json",
+          "canvas": [
+            877,
+            480
+          ],
+          "frames": 124,
+          "fps": 25,
+          "pet_anchor": [
+            484.1196,
+            472.15
+          ],
+          "content_bbox": [
+            2.44,
+            3.08,
+            874.07,
+            479.3
+          ],
+          "loop": false,
+          "auto_end": true,
+          "audio": {
+            "file": "nono-sounds/sounds/action_ball_s2.mp3",
+            "loops": 1,
+            "loop_until_stop": false,
+            "stop": "下一个动作/表情开始前停止（客户端 clearActionMC() 里 _sc.stop()）"
+          }
+        },
+        {
+          "id": 5,
+          "slug": "battery",
+          "name": "吃电池",
+          "file": "nono-form2-actions/nono2_action_battery.json",
+          "canvas": [
+            314,
+            145
+          ],
+          "frames": 219,
+          "fps": 25,
+          "pet_anchor": [
+            75.7458,
+            123.2191
+          ],
+          "content_bbox": [
+            0.18,
+            4.33,
+            312.25,
+            144.59
+          ],
+          "loop": false,
+          "auto_end": true,
+          "audio": {
+            "file": "nono-sounds/sounds/action_battery_s2.mp3",
+            "loops": 1,
+            "loop_until_stop": false,
+            "stop": "下一个动作/表情开始前停止（客户端 clearActionMC() 里 _sc.stop()）"
+          }
+        },
+        {
+          "id": 6,
+          "slug": "summon",
+          "name": "召唤",
+          "file": "nono-form2-actions/nono2_action_summon.json",
+          "canvas": [
+            346,
+            157
+          ],
+          "frames": 149,
+          "fps": 25,
+          "pet_anchor": [
+            37.0155,
+            146.25
+          ],
+          "content_bbox": [
+            6.42,
+            0.0,
+            345.8,
+            156.76
+          ],
+          "loop": false,
+          "auto_end": true,
+          "audio": {
+            "file": "nono-sounds/sounds/action_summon_s2.mp3",
+            "loops": 1,
+            "loop_until_stop": false,
+            "stop": "下一个动作/表情开始前停止（客户端 clearActionMC() 里 _sc.stop()）"
+          }
+        },
+        {
+          "id": 7,
+          "slug": "cube",
+          "name": "玩魔方",
+          "file": "nono-form2-actions/nono2_action_cube.json",
+          "canvas": [
+            247,
+            252
+          ],
+          "frames": 250,
+          "fps": 25,
+          "pet_anchor": [
+            67.55,
+            224.8
+          ],
+          "content_bbox": [
+            0.0,
+            0.0,
+            244.96,
+            251.05
+          ],
+          "loop": false,
+          "auto_end": true,
+          "audio": {
+            "file": "nono-sounds/sounds/action_cube_s2.mp3",
+            "loops": 1,
+            "loop_until_stop": false,
+            "stop": "下一个动作/表情开始前停止（客户端 clearActionMC() 里 _sc.stop()）"
+          }
+        }
+      ],
+      "expressions": [
+        {
+          "id": 1,
+          "slug": "happy",
+          "name": "开心",
+          "file": "nono-form2-expressions/nono2_exp_happy.json",
+          "canvas": [
+            81,
+            90
+          ],
+          "frames": 60,
+          "fps": 25,
+          "pet_anchor": [
+            44.3008,
+            82.6395
+          ],
+          "content_bbox": [
+            0.97,
+            4.41,
+            80.5,
+            89.75
+          ],
+          "loop": false,
+          "auto_end": true,
+          "audio": null
+        },
+        {
+          "id": 2,
+          "slug": "angry",
+          "name": "生气",
+          "file": "nono-form2-expressions/nono2_exp_angry.json",
+          "canvas": [
+            76,
+            88
+          ],
+          "frames": 113,
+          "fps": 25,
+          "pet_anchor": [
+            37.2924,
+            82.4387
+          ],
+          "content_bbox": [
+            2.37,
+            6.17,
+            63.35,
+            87.87
+          ],
+          "loop": false,
+          "auto_end": true,
+          "audio": null
+        },
+        {
+          "id": 3,
+          "slug": "surprise",
+          "name": "惊讶",
+          "file": "nono-form2-expressions/nono2_exp_surprise.json",
+          "canvas": [
+            89,
+            83
+          ],
+          "frames": 113,
+          "fps": 25,
+          "pet_anchor": [
+            46.8267,
+            76.5725
+          ],
+          "content_bbox": [
+            0.38,
+            1.58,
+            88.39,
+            81.97
+          ],
+          "loop": false,
+          "auto_end": true,
+          "audio": null
+        },
+        {
+          "id": 4,
+          "slug": "sad",
+          "name": "悲哀",
+          "file": "nono-form2-expressions/nono2_exp_sad.json",
+          "canvas": [
+            76,
+            103
+          ],
+          "frames": 118,
+          "fps": 25,
+          "pet_anchor": [
+            37.0155,
+            96.3678
+          ],
+          "content_bbox": [
+            9.59,
+            1.01,
+            64.95,
+            102.3
+          ],
+          "loop": false,
+          "auto_end": true,
+          "audio": null
+        }
+      ]
+    },
+    {
+      "id": 3,
+      "name": "形态 3",
+      "fps": 25,
+      "walk": {
+        "pet_anchor": [
+          39.4001,
+          71.9944
+        ],
+        "directions": {
+          "down": {
+            "file": "nono-form3-walk/nono3_down.json",
+            "canvas": [
+              77,
+              80
+            ],
+            "frames": 16,
+            "fps": 25,
+            "pet_anchor": [
+              39.4001,
+              71.9944
+            ],
+            "loop": true,
+            "audio": null
+          },
+          "leftdown": {
+            "file": "nono-form3-walk/nono3_leftdown.json",
+            "canvas": [
+              77,
+              80
+            ],
+            "frames": 16,
+            "fps": 25,
+            "pet_anchor": [
+              39.4001,
+              71.9944
+            ],
+            "loop": true,
+            "audio": null
+          },
+          "left": {
+            "file": "nono-form3-walk/nono3_left.json",
+            "canvas": [
+              77,
+              80
+            ],
+            "frames": 16,
+            "fps": 25,
+            "pet_anchor": [
+              39.4001,
+              71.9944
+            ],
+            "loop": true,
+            "audio": null
+          },
+          "leftup": {
+            "file": "nono-form3-walk/nono3_leftup.json",
+            "canvas": [
+              77,
+              80
+            ],
+            "frames": 16,
+            "fps": 25,
+            "pet_anchor": [
+              39.4001,
+              71.9944
+            ],
+            "loop": true,
+            "audio": null
+          },
+          "up": {
+            "file": "nono-form3-walk/nono3_up.json",
+            "canvas": [
+              77,
+              80
+            ],
+            "frames": 16,
+            "fps": 25,
+            "pet_anchor": [
+              39.4001,
+              71.9944
+            ],
+            "loop": true,
+            "audio": null
+          },
+          "rightup": {
+            "file": "nono-form3-walk/nono3_rightup.json",
+            "canvas": [
+              77,
+              80
+            ],
+            "frames": 16,
+            "fps": 25,
+            "pet_anchor": [
+              39.4001,
+              71.9944
+            ],
+            "loop": true,
+            "audio": null
+          },
+          "right": {
+            "file": "nono-form3-walk/nono3_right.json",
+            "canvas": [
+              77,
+              80
+            ],
+            "frames": 16,
+            "fps": 25,
+            "pet_anchor": [
+              39.4001,
+              71.9944
+            ],
+            "loop": true,
+            "audio": null
+          },
+          "rightdown": {
+            "file": "nono-form3-walk/nono3_rightdown.json",
+            "canvas": [
+              77,
+              80
+            ],
+            "frames": 16,
+            "fps": 25,
+            "pet_anchor": [
+              39.4001,
+              71.9944
+            ],
+            "loop": true,
+            "audio": null
+          }
+        },
+        "idle_direction": "down",
+        "idle_frame": 0
+      },
+      "actions": [
+        {
+          "id": 2,
+          "slug": "boot",
+          "name": "开机",
+          "file": "nono-form3-actions/nono3_action_boot.json",
+          "canvas": [
+            103,
+            113
+          ],
+          "frames": 84,
+          "fps": 25,
+          "pet_anchor": [
+            49.8534,
+            95.745
+          ],
+          "content_bbox": [
+            0.08,
+            0.0,
+            102.08,
+            111.76
+          ],
+          "loop": false,
+          "auto_end": true,
+          "audio": {
+            "file": "nono-sounds/sounds/action_boot_s3.mp3",
+            "loops": 1,
+            "loop_until_stop": false,
+            "stop": "下一个动作/表情开始前停止（客户端 clearActionMC() 里 _sc.stop()）"
+          }
+        },
+        {
+          "id": 3,
+          "slug": "shutdown",
+          "name": "关机",
+          "file": "nono-form3-actions/nono3_action_shutdown.json",
+          "canvas": [
+            77,
+            80
+          ],
+          "frames": 63,
+          "fps": 25,
+          "pet_anchor": [
+            39.4001,
+            71.9944
+          ],
+          "content_bbox": [
+            5.95,
+            2.32,
+            72.25,
+            79.46
+          ],
+          "loop": false,
+          "auto_end": false,
+          "audio": {
+            "file": "nono-sounds/sounds/action_shutdown_s3.mp3",
+            "loops": 1,
+            "loop_until_stop": false,
+            "stop": "下一个动作/表情开始前停止（客户端 clearActionMC() 里 _sc.stop()）"
+          }
+        },
+        {
+          "id": 4,
+          "slug": "ball",
+          "name": "玩球",
+          "file": "nono-form3-actions/nono3_action_ball.json",
+          "canvas": [
+            503,
+            297
+          ],
+          "frames": 164,
+          "fps": 25,
+          "pet_anchor": [
+            50.9,
+            286.55
+          ],
+          "content_bbox": [
+            0.0,
+            0.55,
+            499.4,
+            293.77
+          ],
+          "loop": false,
+          "auto_end": true,
+          "audio": {
+            "file": "nono-sounds/sounds/action_ball_s3.mp3",
+            "loops": 1,
+            "loop_until_stop": false,
+            "stop": "下一个动作/表情开始前停止（客户端 clearActionMC() 里 _sc.stop()）"
+          }
+        },
+        {
+          "id": 5,
+          "slug": "battery",
+          "name": "吃电池",
+          "file": "nono-form3-actions/nono3_action_battery.json",
+          "canvas": [
+            298,
+            325
+          ],
+          "frames": 275,
+          "fps": 25,
+          "pet_anchor": [
+            39.4001,
+            309.6315
+          ],
+          "content_bbox": [
+            5.69,
+            2.02,
+            297.26,
+            319.94
+          ],
+          "loop": false,
+          "auto_end": true,
+          "audio": {
+            "file": "nono-sounds/sounds/action_battery_s3.mp3",
+            "loops": 1,
+            "loop_until_stop": false,
+            "stop": "下一个动作/表情开始前停止（客户端 clearActionMC() 里 _sc.stop()）"
+          }
+        },
+        {
+          "id": 6,
+          "slug": "summon",
+          "name": "召唤",
+          "file": "nono-form3-actions/nono3_action_summon.json",
+          "canvas": [
+            410,
+            205
+          ],
+          "frames": 100,
+          "fps": 25,
+          "pet_anchor": [
+            100.2774,
+            143.0334
+          ],
+          "content_bbox": [
+            0.15,
+            0.02,
+            409.05,
+            204.09
+          ],
+          "loop": false,
+          "auto_end": true,
+          "audio": {
+            "file": "nono-sounds/sounds/action_summon_s3.mp3",
+            "loops": 1,
+            "loop_until_stop": false,
+            "stop": "下一个动作/表情开始前停止（客户端 clearActionMC() 里 _sc.stop()）"
+          }
+        },
+        {
+          "id": 7,
+          "slug": "cube",
+          "name": "玩魔方",
+          "file": "nono-form3-actions/nono3_action_cube.json",
+          "canvas": [
+            175,
+            267
+          ],
+          "frames": 262,
+          "fps": 25,
+          "pet_anchor": [
+            80.85,
+            216.0
+          ],
+          "content_bbox": [
+            0.0,
+            0.0,
+            174.05,
+            266.6
+          ],
+          "loop": false,
+          "auto_end": true,
+          "audio": {
+            "file": "nono-sounds/sounds/action_cube_s3.mp3",
+            "loops": 1,
+            "loop_until_stop": false,
+            "stop": "下一个动作/表情开始前停止（客户端 clearActionMC() 里 _sc.stop()）"
+          }
+        }
+      ],
+      "expressions": [
+        {
+          "id": 1,
+          "slug": "dizzy",
+          "name": "头晕",
+          "file": "nono-form3-expressions/nono3_exp_dizzy.json",
+          "canvas": [
+            160,
+            126
+          ],
+          "frames": 76,
+          "fps": 25,
+          "pet_anchor": [
+            85.9217,
+            118.9695
+          ],
+          "content_bbox": [
+            5.28,
+            3.05,
+            155.96,
+            125.6
+          ],
+          "loop": false,
+          "auto_end": true,
+          "audio": null
+        },
+        {
+          "id": 2,
+          "slug": "angry",
+          "name": "生气",
+          "file": "nono-form3-expressions/nono3_exp_angry.json",
+          "canvas": [
+            237,
+            215
+          ],
+          "frames": 75,
+          "fps": 25,
+          "pet_anchor": [
+            114.3858,
+            168.8587
+          ],
+          "content_bbox": [
+            28.63,
+            41.5,
+            214.12,
+            184.55
+          ],
+          "loop": false,
+          "auto_end": true,
+          "audio": null
+        },
+        {
+          "id": 3,
+          "slug": "play",
+          "name": "玩乐",
+          "file": "nono-form3-expressions/nono3_exp_play.json",
+          "canvas": [
+            77,
+            80
+          ],
+          "frames": 100,
+          "fps": 25,
+          "pet_anchor": [
+            39.4001,
+            71.9944
+          ],
+          "content_bbox": [
+            2.83,
+            2.55,
+            73.57,
+            79.65
+          ],
+          "loop": false,
+          "auto_end": true,
+          "audio": null
+        },
+        {
+          "id": 4,
+          "slug": "happy",
+          "name": "开心",
+          "file": "nono-form3-expressions/nono3_exp_happy.json",
+          "canvas": [
+            100,
+            126
+          ],
+          "frames": 94,
+          "fps": 25,
+          "pet_anchor": [
+            64.1319,
+            118.25
+          ],
+          "content_bbox": [
+            3.37,
+            3.35,
+            97.72,
+            125.9
+          ],
+          "loop": false,
+          "auto_end": true,
+          "audio": null
+        }
+      ]
+    }
+  ]
+}
