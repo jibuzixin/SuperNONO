@@ -28,6 +28,7 @@
 
 ```bash
 rustup default stable
+export PATH="$HOME/.cargo/bin:$PATH"   # 如果 cargo 还不在 PATH 里
 cargo run --release -p nono-app
 ```
 
