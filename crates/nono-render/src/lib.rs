@@ -34,6 +34,8 @@ pub enum RenderError {
     Image(#[from] image::ImageError),
     #[error("io error: {0}")]
     Io(#[from] std::io::Error),
+    #[error("lottie json error: {0}")]
+    Json(#[from] serde_json::Error),
 }
 
 /// Returns freed-but-still-resident allocator pages to the OS.
@@ -114,13 +116,14 @@ impl Renderer {
         self.tint = tint.filter(|t| *t != [255, 255, 255]);
     }
 
-    /// Tints the character's white body pixels only.
+    /// Second tint pass: after the body layers are recoloured in the Lottie
+    /// JSON, the large white-only parts that belong to the ball but are not
+    /// tagged with body shading (e.g. form-3's helmet) still need colour.
     ///
-    /// The body is found as the large white connected regions around the black
-    /// visor.  Sweat drops are tiny components, thought bubbles / lightbulbs are
-    /// far from the visor, and props such as the cube are not pure white
-    /// (their whites are ~0.97), so none of them are touched.  Cyan parts and
-    /// grey/beige shading are not near-white and stay as they are.
+    /// Candidates are large white components whose bounding box mostly lies
+    /// outside the black visor and whose centroid is at the body centre.  The
+    /// side/lower fin region is cut out, so hands/fins stay white, and small
+    /// glows/sweat/eyes inside the visor are ignored.
     fn apply_tint(&mut self) {
         let Some(tint) = self.tint else { return };
         let w = self.width as usize;
@@ -139,8 +142,6 @@ impl Renderer {
         let dh = h.div_ceil(STRIDE);
         let mut white = vec![false; dw * dh];
         let mut dark = vec![false; dw * dh];
-
-        // Down-sampled masks: near-white body candidates and dark visor pixels.
         for y in 0..h {
             let row = y * w * 4;
             let cell_row = (y / STRIDE) * dw;
@@ -164,38 +165,53 @@ impl Renderer {
                 }
             }
         }
-
         let (white_labels, white_stats) = label_mask(&white, dw, dh);
         let (_, dark_stats) = label_mask(&dark, dw, dh);
-        let visor = dark_stats
-            .iter()
-            .max_by_key(|s| s.cells)
-            .map(|s| (s.sum_x as f32 / s.cells as f32, s.sum_y as f32 / s.cells as f32));
-
+        let visor = dark_stats.iter().max_by_key(|s| s.cells).map(|s| (s.x0, s.y0, s.x1, s.y1));
         let scale = self.pixel_scale.max(0.01);
+        let unit = STRIDE as f32 / scale;
+        let (vcx, vcy, vw, vh) = match visor {
+            Some((x0, y0, x1, y1)) => (
+                (x0 + x1) as f32 / 2.0 * unit,
+                (y0 + y1) as f32 / 2.0 * unit,
+                (x1 - x0) as f32 * unit,
+                (y1 - y0) as f32 * unit,
+            ),
+            None => (0.0, 0.0, 0.0, 0.0),
+        };
         let mut selected = vec![false; white_stats.len() + 1];
-        for (i, stat) in white_stats.iter().enumerate() {
-            let area_units =
-                stat.cells as f32 * (STRIDE * STRIDE) as f32 / (scale * scale);
-            if area_units < 20.0 {
+        for (i, st) in white_stats.iter().enumerate() {
+            let area = st.cells as f32 * (STRIDE * STRIDE) as f32 / (scale * scale);
+            if area < 80.0 {
                 continue;
             }
-            let keep = if self.walk_animation {
+            let keep = if self.walk_animation || visor.is_none() {
                 true
-            } else if let Some((vx, vy)) = visor {
-                let cx = stat.sum_x as f32 / stat.cells as f32;
-                let cy = stat.sum_y as f32 / stat.cells as f32;
-                let dist = ((cx - vx).powi(2) + (cy - vy).powi(2)).sqrt() * STRIDE as f32 / scale;
-                dist <= 45.0
             } else {
-                true
+                let (x0, y0, x1, y1) = visor.unwrap();
+                let ix0 = st.x0.max(x0);
+                let iy0 = st.y0.max(y0);
+                let ix1 = st.x1.min(x1);
+                let iy1 = st.y1.min(y1);
+                let inside = if ix0 <= ix1 && iy0 <= iy1 {
+                    ((ix1 - ix0 + 1) * (iy1 - iy0 + 1)) as f32
+                } else {
+                    0.0
+                };
+                let comp_w = (st.x1 - st.x0 + 1) as f32;
+                let comp_h = (st.y1 - st.y0 + 1) as f32;
+                let outside = 1.0 - inside / (comp_w * comp_h).max(1.0);
+                let cx = st.sum_x as f32 / st.cells as f32 * unit;
+                let cy = st.sum_y as f32 / st.cells as f32 * unit;
+                let dx = cx - vcx;
+                let dy = cy - vcy;
+                let dist = (dx * dx + dy * dy).sqrt();
+                outside >= 0.5 && dx.abs() <= 0.8 * vw && dist <= 45.0 && vh > 0.0
             };
             if keep {
                 selected[i + 1] = true;
             }
         }
-
-        // Tint only pixels whose connected region was selected.
         for y in 0..h {
             let row = y * w * 4;
             let cell_row = (y / STRIDE) * dw;
@@ -216,6 +232,18 @@ impl Renderer {
                 let cell = cell_row + x / STRIDE;
                 if !selected[white_labels[cell] as usize] {
                     continue;
+                }
+                if !self.walk_animation && visor.is_some() {
+                    let (x0, y0, x1, y1) = visor.unwrap();
+                    let (x0, y0, x1, y1) = (x0 as usize, y0 as usize, x1 as usize, y1 as usize);
+                    if x / STRIDE >= x0 && x / STRIDE <= x1 && y / STRIDE >= y0 && y / STRIDE <= y1 {
+                        continue;
+                    }
+                    let dx = (x as f32 / scale) - vcx;
+                    let dy = (y as f32 / scale) - vcy;
+                    if dx.abs() > 0.8 * vw && dy > -0.5 * vh {
+                        continue;
+                    }
                 }
                 let k = mx;
                 bytes[i] = (tint[0] as u32 * k / 255) as u8;
@@ -289,11 +317,22 @@ impl Renderer {
         }
 
         let mut anim = self.engine.lottie_animation()?;
-        anim.load_file(
-            spec.file
-                .to_str()
-                .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "non-utf8 path"))?,
-        )?;
+        if let Some(tint) = self.tint {
+            // Recolour the body layers in a copy of the Lottie JSON.  The white
+            // ball and the white ear roots live in the layers that also carry
+            // the body's grey/beige shading; hands/fins, ear glows, sweat,
+            // thought bubbles and props are separate white-only/coloured layers
+            // and are therefore left untouched.
+            let bytes = std::fs::read(&spec.file)?;
+            let tinted = tint_lottie_json(&bytes, tint)?;
+            anim.load_data(&tinted)?;
+        } else {
+            anim.load_file(
+                spec.file
+                    .to_str()
+                    .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "non-utf8 path"))?,
+            )?;
+        }
         // Per-animation placement correction (see assets/tuning.json).
         // Scaling happens around the pet anchor so the feet stay put.  A start
         // offset can differ from the end offset; it is interpolated per frame.
@@ -425,11 +464,144 @@ impl Renderer {
 
 
 
-#[derive(Default, Clone, Copy)]
+/// True when a colour is a mid-tone body shade (grey/beige), used to identify
+/// the character's body layers.  Pure white is not a shade.
+fn is_body_shade(c: (f32, f32, f32)) -> bool {
+    let (r, g, b) = c;
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    if !(0.5..=0.94).contains(&max) || max - min > 0.09 {
+        return false;
+    }
+    b <= r + 0.03
+}
+
+/// Colour that may be recoloured inside a body layer: white, neutral grey or
+/// warm beige/cream shading.  Bluish greys and saturated parts stay untouched.
+fn is_tintable(c: (f32, f32, f32)) -> bool {
+    let (r, g, b) = c;
+    let max = r.max(g).max(b);
+    let min = r.min(g).min(b);
+    max >= 0.5 && max - min <= 0.09 && b <= r + 0.015
+}
+
+fn is_body_layer(layer: &serde_json::Value) -> bool {
+    let mut has_white = false;
+    let mut has_shade = false;
+    let mut has_saturated = false;
+    fn walk(node: &serde_json::Value, has_white: &mut bool, has_shade: &mut bool, has_saturated: &mut bool) {
+        match node {
+            serde_json::Value::Object(map) => {
+                if matches!(map.get("ty").and_then(|v| v.as_str()), Some("fl") | Some("st")) {
+                    if let Some(c) = map.get("c").and_then(|v| v.as_object()) {
+                        if c.get("a").and_then(|v| v.as_i64()).unwrap_or(0) == 0 {
+                            if let Some(k) = c.get("k").and_then(|v| v.as_array()) {
+                                if k.len() >= 3 {
+                                    let r = k[0].as_f64().unwrap_or(0.0) as f32;
+                                    let g = k[1].as_f64().unwrap_or(0.0) as f32;
+                                    let b = k[2].as_f64().unwrap_or(0.0) as f32;
+                                    if r.min(g).min(b) >= 0.985 {
+                                        *has_white = true;
+                                    }
+                                    if is_body_shade((r, g, b)) {
+                                        *has_shade = true;
+                                    }
+                                    if r.max(g).max(b) - r.min(g).min(b) > 0.15
+                                        && r.max(g).max(b) > 0.1
+                                    {
+                                        *has_saturated = true;
+                                    }
+                                }
+                            }
+                        }
+                    }
+                }
+                for v in map.values() {
+                    walk(v, has_white, has_shade, has_saturated);
+                }
+            }
+            serde_json::Value::Array(arr) => {
+                for v in arr {
+                    walk(v, has_white, has_shade, has_saturated);
+                }
+            }
+            _ => {}
+        }
+    }
+    walk(layer, &mut has_white, &mut has_shade, &mut has_saturated);
+    // Saturated layers are props/effects (e.g. the yellow light bulb), never
+    // the neutral body shell.
+    has_white && has_shade && !has_saturated
+}
+
+fn tint_layer(layer: &mut serde_json::Value, tint: [u8; 3]) {
+    match layer {
+        serde_json::Value::Object(map) => {
+            if matches!(map.get("ty").and_then(|v| v.as_str()), Some("fl") | Some("st")) {
+                if let Some(c) = map.get_mut("c").and_then(|v| v.as_object_mut()) {
+                    if c.get("a").and_then(|v| v.as_i64()).unwrap_or(0) == 0 {
+                        if let Some(k) = c.get_mut("k").and_then(|v| v.as_array_mut()) {
+                            if k.len() >= 3 {
+                                let r = k[0].as_f64().unwrap_or(0.0) as f32;
+                                let g = k[1].as_f64().unwrap_or(0.0) as f32;
+                                let b = k[2].as_f64().unwrap_or(0.0) as f32;
+                                if is_tintable((r, g, b)) {
+                                    let k_bright = r.max(g).max(b);
+                                    k[0] = serde_json::json!(tint[0] as f32 / 255.0 * k_bright);
+                                    k[1] = serde_json::json!(tint[1] as f32 / 255.0 * k_bright);
+                                    k[2] = serde_json::json!(tint[2] as f32 / 255.0 * k_bright);
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+            for v in map.values_mut() {
+                tint_layer(v, tint);
+            }
+        }
+        serde_json::Value::Array(arr) => {
+            for v in arr.iter_mut() {
+                tint_layer(v, tint);
+            }
+        }
+        _ => {}
+    }
+}
+
+/// Recolours the body layers of a Lottie document.
+///
+/// Only layers that contain both pure white and the body's mid-tone shading are
+/// eligible: those are the white ball and the white ear roots.  White-only
+/// layers (hands/fins, ear glows, sweat drops, thought bubbles, props) and
+/// saturated layers (cyan/black/glass) are left alone.  Animations without such
+/// a layer (some walk directions, form-2 charge) have no effects, so every layer
+/// is eligible there.
+fn tint_lottie_json(bytes: &[u8], tint: [u8; 3]) -> Result<Vec<u8>, serde_json::Error> {
+    let mut root: serde_json::Value = serde_json::from_slice(bytes)?;
+    let Some(layers) = root.get_mut("layers").and_then(|v| v.as_array_mut()) else {
+        return Ok(bytes.to_vec());
+    };
+    let body: Vec<bool> = layers.iter().map(is_body_layer).collect();
+    let any_body = body.iter().any(|b| *b);
+    for (i, layer) in layers.iter_mut().enumerate() {
+        if any_body && !body[i] {
+            continue;
+        }
+        tint_layer(layer, tint);
+    }
+    serde_json::to_vec(&root)
+}
+
+#[derive(Clone, Copy)]
 struct RegionStat {
     cells: u32,
     sum_x: u64,
     sum_y: u64,
+    x0: u32,
+    y0: u32,
+    x1: u32,
+    y1: u32,
 }
 
 /// 4-connected component labelling on a down-sampled mask.
@@ -442,7 +614,15 @@ fn label_mask(mask: &[bool], dw: usize, dh: usize) -> (Vec<u32>, Vec<RegionStat>
             continue;
         }
         let id = (stats.len() + 1) as u32;
-        stats.push(RegionStat::default());
+        stats.push(RegionStat {
+            cells: 0,
+            sum_x: 0,
+            sum_y: 0,
+            x0: u32::MAX,
+            y0: u32::MAX,
+            x1: 0,
+            y1: 0,
+        });
         labels[start] = id;
         stack.push(start);
         while let Some(i) = stack.pop() {
@@ -452,21 +632,37 @@ fn label_mask(mask: &[bool], dw: usize, dh: usize) -> (Vec<u32>, Vec<RegionStat>
             stat.cells += 1;
             stat.sum_x += x as u64;
             stat.sum_y += y as u64;
+            stat.x0 = stat.x0.min(x as u32);
+            stat.y0 = stat.y0.min(y as u32);
+            stat.x1 = stat.x1.max(x as u32);
+            stat.y1 = stat.y1.max(y as u32);
             if x > 0 {
                 let j = i - 1;
-                if mask[j] && labels[j] == 0 { labels[j] = id; stack.push(j); }
+                if mask[j] && labels[j] == 0 {
+                    labels[j] = id;
+                    stack.push(j);
+                }
             }
             if x + 1 < dw {
                 let j = i + 1;
-                if mask[j] && labels[j] == 0 { labels[j] = id; stack.push(j); }
+                if mask[j] && labels[j] == 0 {
+                    labels[j] = id;
+                    stack.push(j);
+                }
             }
             if y > 0 {
                 let j = i - dw;
-                if mask[j] && labels[j] == 0 { labels[j] = id; stack.push(j); }
+                if mask[j] && labels[j] == 0 {
+                    labels[j] = id;
+                    stack.push(j);
+                }
             }
             if y + 1 < dh {
                 let j = i + dw;
-                if mask[j] && labels[j] == 0 { labels[j] = id; stack.push(j); }
+                if mask[j] && labels[j] == 0 {
+                    labels[j] = id;
+                    stack.push(j);
+                }
             }
         }
     }
@@ -564,24 +760,50 @@ mod tests {
     }
 
     #[test]
-    fn tint_skips_sweat_drops() {
+    fn tint_skips_effect_layers() {
+        let root = assets_root();
+        let surprise_path = root.join("nono-form1-expressions/nono1_exp_surprise.json");
+        if !surprise_path.is_file() {
+            return;
+        }
+        let bytes = std::fs::read(&surprise_path).unwrap();
+        let before: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        let tinted = tint_lottie_json(&bytes, [255, 0, 0]).unwrap();
+        let after: serde_json::Value = serde_json::from_slice(&tinted).unwrap();
+        // Layer 0 is a white-only sweat drop; layer 45 is the white/grey shell.
+        assert_eq!(before["layers"][0], after["layers"][0], "sweat must stay white");
+        assert_ne!(before["layers"][45], after["layers"][45], "body must be tinted");
+
+        // The cube's own white faces are not body layers either.
+        let cube_path = root.join("nono-form1-actions/nono1_action_cube.json");
+        if cube_path.is_file() {
+            let bytes = std::fs::read(&cube_path).unwrap();
+            let tinted = tint_lottie_json(&bytes, [255, 0, 0]).unwrap();
+            let before: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+            let after: serde_json::Value = serde_json::from_slice(&tinted).unwrap();
+            assert_eq!(before["layers"][0], after["layers"][0], "prop layers must stay untouched");
+        }
+    }
+
+    #[test]
+    fn tint_keeps_side_fins_white() {
         let _guard = THORVG_LOCK.lock().unwrap();
         let root = assets_root();
         if !root.join("catalog.json").is_file() {
             return;
         }
         let catalog = Catalog::load(&root).unwrap();
-        let spec = catalog.expression_spec(1, "surprise").unwrap();
+        let spec = catalog.expression_spec(2, "happy").unwrap();
         let mut renderer = Renderer::new().unwrap();
+        renderer.set_tint(Some([255, 0, 0]));
         renderer.load(&spec, 3.0).unwrap();
-        renderer.render_frame(20.0).unwrap();
-        let before = renderer.rgba8().to_vec();
+        renderer.render_frame(15.0).unwrap();
+        let buf = renderer.rgba8().to_vec();
         let width = renderer.size().0 as usize;
-        // A sweat droplet sits near canvas (11.3, 46.7); sample its tiny area.
-        let white_near_sweat = |buf: &[u8]| {
+        let white_in = |x0: usize, x1: usize, y0: usize, y1: usize| {
             let mut n = 0;
-            for y in 133..147 {
-                for x in 27..41 {
+            for y in y0..y1 {
+                for x in x0..x1 {
                     let i = (y * width + x) * 4;
                     if buf[i] > 220 && buf[i + 1] > 220 && buf[i + 2] > 220 {
                         n += 1;
@@ -590,22 +812,15 @@ mod tests {
             }
             n
         };
-        let sweat_before = white_near_sweat(&before);
-        assert!(sweat_before > 4, "sweat droplet should be white ({sweat_before})");
-
-        renderer.set_tint(Some([255, 0, 0]));
-        renderer.render_frame(20.0).unwrap();
-        let after = renderer.rgba8().to_vec();
-        assert_eq!(
-            white_near_sweat(&after),
-            sweat_before,
-            "sweat drops must stay white"
-        );
-        let red = after
+        let left = white_in(20, 75, 130, 165);
+        let right = white_in(175, 225, 85, 130);
+        assert!(left > 10, "left fin should stay white ({left})");
+        assert!(right > 10, "right fin should stay white ({right})");
+        let red = buf
             .chunks_exact(4)
             .filter(|p| p[3] > 240 && p[0] > 200 && p[1] < 40 && p[2] < 40)
             .count();
-        assert!(red > 100, "the body shell should be tinted, got {red}");
+        assert!(red > 100, "body should be tinted, got {red}");
     }
 
     #[test]

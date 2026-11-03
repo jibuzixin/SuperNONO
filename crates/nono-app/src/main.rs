@@ -613,8 +613,9 @@ impl App {
         };
         self.config.tint = tint;
         self.renderer.set_tint(tint);
-        // The tint is applied to the pixels of the current frame.
-        self.render_now(now);
+        // The tint is baked into the Lottie layers at load time, so reload the
+        // current animation (keeping its playback position).
+        self.reload_preserving_frame(now);
         self.save_config();
         if let Some(tray) = &self.tray {
             tray.sync_checks(&self.config);
