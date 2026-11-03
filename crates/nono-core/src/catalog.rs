@@ -89,6 +89,9 @@ pub struct AnimationSpec {
     pub audio: Option<AudioSpec>,
     /// Facing to use when an action returns to idle (`None` keeps the current).
     pub return_facing: Option<Direction>,
+    /// Action to enter, looping, when a non-auto-end action finishes
+    /// (shutdown -> charge).  `None` holds the last frame.
+    pub after_action: Option<String>,
     /// Rendering correction from `assets/tuning.json`.
     pub placement: Placement,
     /// Optional playback length override (used to trim duplicate/empty tails).
@@ -174,6 +177,9 @@ pub struct ActionDef {
     /// Optional direction the pet should face when this action ends.
     #[serde(default)]
     pub return_facing: Option<String>,
+    /// Action to enter (looping) when this action ends without auto-end.
+    #[serde(default)]
+    pub after_action: Option<String>,
     #[serde(default)]
     pub content_bbox: Option<[f32; 4]>,
     #[serde(default)]
@@ -366,6 +372,7 @@ impl Catalog {
             auto_end: false,
             audio: def.audio.as_ref().and_then(|a| self.audio(a)),
             return_facing: None,
+            after_action: None,
             placement: self.tuning_for(&id).placement,
             play_frames: self.tuning_for(&id).frames,
             content_bbox: def.content_bbox.map(|b| (b[0], b[1], b[2], b[3])),
@@ -404,6 +411,7 @@ impl Catalog {
             auto_end: def.auto_end,
             audio: def.audio.as_ref().and_then(|a| self.audio(a)),
             return_facing,
+            after_action: def.after_action.clone(),
             placement: self.tuning_for(&id).placement,
             play_frames: self.tuning_for(&id).frames,
             content_bbox: def.content_bbox.map(|b| (b[0], b[1], b[2], b[3])),
@@ -436,6 +444,7 @@ impl Catalog {
             auto_end: true,
             audio: def.audio.as_ref().and_then(|a| self.audio(a)),
             return_facing: None,
+            after_action: None,
             placement: self.tuning_for(&id).placement,
             play_frames: self.tuning_for(&id).frames,
             content_bbox: def.content_bbox.map(|b| (b[0], b[1], b[2], b[3])),
@@ -618,7 +627,7 @@ mod tests {
         // trimmed to the first one (2.08 s, matching its sound).
         assert_eq!(
             catalog.action_spec(1, "shutdown").unwrap().effective_frames(),
-            52
+            95
         );
         // Form-3 summon has an empty tail; play only the visible part.
         assert_eq!(

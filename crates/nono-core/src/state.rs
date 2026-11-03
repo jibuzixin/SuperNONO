@@ -105,7 +105,7 @@ impl PetState {
     /// so it animates just like walking; only a held last frame (charge /
     /// shutdown) stops the clock.
     pub fn is_animating(&self) -> bool {
-        !self.finished
+        !self.finished && self.anim.effective_frames() > 1
     }
 
     /// Current frame of the active animation.  Idle plays the walk cycle in
@@ -257,7 +257,7 @@ impl PetState {
                     tick.moved = true;
                 }
             }
-        } else if self.mode.is_busy() && !self.finished {
+        } else if self.mode.is_busy() && !self.finished && !self.anim.loop_anim {
             let elapsed = now.saturating_duration_since(self.anim_started);
             let duration = Duration::from_secs_f32(self.anim.duration_secs());
             if elapsed >= duration {
@@ -290,7 +290,30 @@ impl PetState {
                 self.idle(catalog, now);
                 true
             }
-            Mode::Action => false,
+            Mode::Action => {
+                // Charge/shutdown hold their last frame, except that a shutdown
+                // on a form with a charge animation continues into a looping
+                // recharge state.
+                if let Some(next) = self.anim.after_action.clone() {
+                    match catalog.action_spec(self.form, &next) {
+                        Ok(mut spec) => {
+                            spec.loop_anim = true;
+                            spec.auto_end = false;
+                            spec.return_facing = None;
+                            self.anim = spec;
+                            self.mode = Mode::Action;
+                            self.anim_started = now;
+                            self.finished = false;
+                            self.walk_target = None;
+                            self.walk_speed = 0.0;
+                            self.last_tick = now;
+                            return true;
+                        }
+                        Err(err) => tracing::warn!(%err, next, "after_action unavailable"),
+                    }
+                }
+                false
+            }
             _ => false,
         }
     }
@@ -391,6 +414,8 @@ mod tests {
     fn shutdown_keeps_the_facing_when_it_finishes() {
         let Some((catalog, mut state)) = catalog_and_state() else { return };
         let start = Instant::now();
+        // Form 3 has no charge animation, so it holds the final frame.
+        assert!(state.set_form(&catalog, 3, start));
         state.facing = Direction::Left;
         assert!(state.play_action(&catalog, "shutdown", start));
         let end = start + Duration::from_secs_f32(state.anim.duration_secs()) + Duration::from_millis(20);
@@ -437,15 +462,35 @@ mod tests {
     }
 
     #[test]
-    fn shutdown_holds_last_frame() {
+    fn shutdown_enters_a_looping_charge_when_available() {
         let Some((catalog, mut state)) = catalog_and_state() else { return };
         let start = Instant::now();
         assert!(state.play_action(&catalog, "shutdown", start));
-        let duration = Duration::from_secs_f32(state.anim.duration_secs());
-        let now = start + duration + Duration::from_millis(10);
+        let end = start + Duration::from_secs_f32(state.anim.duration_secs()) + Duration::from_millis(20);
+        state.tick(&catalog, end);
+        assert!(state.after_finish(&catalog, end));
+        assert_eq!(state.mode, Mode::Action);
+        assert_eq!(state.anim.id, "form1/action/charge");
+        assert!(state.anim.loop_anim);
+        assert!(state.is_animating());
+        // A looping charge never finishes on its own.
+        let later = end + Duration::from_secs(10);
+        let tick = state.tick(&catalog, later);
+        assert!(!tick.finished);
+        assert!(state.frame(later) < state.anim.effective_frames() as f32);
+    }
+
+    #[test]
+    fn form3_shutdown_holds_the_last_frame() {
+        let Some((catalog, mut state)) = catalog_and_state() else { return };
+        let start = Instant::now();
+        assert!(state.set_form(&catalog, 3, start));
+        assert!(state.play_action(&catalog, "shutdown", start));
+        let now = start + Duration::from_secs_f32(state.anim.duration_secs()) + Duration::from_millis(20);
         state.tick(&catalog, now);
         assert!(!state.after_finish(&catalog, now));
         assert_eq!(state.mode, Mode::Action);
         assert_eq!(state.frame(now), (state.anim.effective_frames() - 1) as f32);
+        assert!(!state.is_animating());
     }
 }

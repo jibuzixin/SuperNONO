@@ -40,7 +40,7 @@ RETURN_FACING_BY_SLUG = {"summon": "down", "cube": "down"}
 RETURN_FACING_BY_FORM_SLUG = {
     (1, "battery"): "left",
     (2, "battery"): "right",
-    (2, "ball"): "down",
+    (2, "ball"): "right",
     (3, "ball"): "down",
 }
 
@@ -143,6 +143,7 @@ def build(assets_dir: Path):
         actions = []
         if (actions_dir / "manifest.json").is_file():
             manifest = load_json(actions_dir / "manifest.json")
+            has_charge = any(a["slug"] == "charge" for a in manifest["actions"])
             for entry in manifest["actions"]:
                 rel = f"nono-form{form}-actions/{entry['file']}"
                 path = assets_dir / rel
@@ -165,6 +166,11 @@ def build(assets_dir: Path):
                             (form, entry["slug"])
                         )
                         or RETURN_FACING_BY_SLUG.get(entry["slug"]),
+                        # After a shutdown, a form that has a charge animation
+                        # keeps recharging; forms without one stay powered off.
+                        "after_action": "charge"
+                        if entry["slug"] == "shutdown" and has_charge
+                        else None,
                         "audio": audio_of(entry, assets_dir),
                     }
                 )

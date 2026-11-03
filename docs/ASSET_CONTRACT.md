@@ -87,7 +87,8 @@ nono --check                            # 从应用侧校验
 | `frames` / `fps` | 帧数与帧率，来自 Lottie 的 `op - ip` / `fr` |
 | `loop` | 走路为 `true`；动作/表情为 `false` |
 | `auto_end` | 动作播完后是否回 Idle。充电/关机为 `false`（停在末帧） |
-| `return_facing` | 回待机时的朝向（`down/left/right/...`）。召唤、玩魔方为 `down`；吃电池形态 1 左、形态 2 右 |
+| `return_facing` | 回待机时的朝向（`down/left/right/...`）。召唤、玩魔方为 `down`；吃电池形态 1 左、形态 2 右；形态 2 玩球为 `right`，形态 3 玩球为 `down` |
+| `after_action` | `auto_end=0` 的动作播完后进入的循环动作。关机为 `charge`（有充电动作的形态） |
 | `audio.loops` | `null` + `loop_until_stop=true` 表示一直循环到下一个动画 |
 | `content_bbox` | 内容包围盒（预留给逐像素命中/裁切，M1 未使用） |
 
@@ -111,7 +112,8 @@ nono --check                            # 从应用侧校验
   关掉后待机不再重绘、CPU≈0）。移动方向由目标点差值量化为八方向，起步时锁定。
   起步/停步不会重启循环相位，避免卡顿。
 - **动作**：播一遍停在末帧。`auto_end=1` 的动作播完回 Idle 并清理；
-  `auto_end=0`（形态 1/2 的充电、关机）停在末帧保持占用，直到用户交互。
+  `auto_end=0` 的动作停在末帧保持占用。关机结束时如果该形态有充电动作
+  （形态 1/2），会继续进入**循环充电**；没有充电动作（形态 3）则静止在关机末帧。
 - **表情**：播一遍回 Idle；跨形态表情名不同（形态 3：头晕/生气/玩乐/开心）。
 - **音效**：动作开始时播放；下一个动作/表情开始前停止。走路、表情、充电在
   原资源里没有声音（`audio: null`），不要伪造。
@@ -145,7 +147,7 @@ nono --check                            # 从应用侧校验
 | `form1/action/summon` | 结束比待机低 3.6 | `offset [0,-3.6]` |
 | `form2/action/summon` | 结束比待机低 6.2 | `offset [0,-6.2]` |
 | `form3/action/summon` | 结束低 1.3，且第 70 帧后整段空白 | `offset [0,-1.3]` + `frames 70` |
-| `form1/action/shutdown` | 第 100 帧起完整重复前 65 帧（看起来播两遍） | `frames 52`（约 2.08s，与音效等长） |
+| `form1/action/shutdown` | 整条动画是两遍；第 94 帧第一遍结束（脸部全黑），之后重复 | `frames 95` |
 
 ## 5. 渲染细节（ThorVG）
 
