@@ -31,3 +31,15 @@ pub fn screen_visible_bounds() -> Option<nono_core::Rect> {
         None
     }
 }
+
+/// Current mouse position in top-left physical pixels (`None` if unavailable).
+pub fn cursor_position() -> Option<nono_core::Point> {
+    #[cfg(target_os = "macos")]
+    {
+        macos::cursor_position()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}

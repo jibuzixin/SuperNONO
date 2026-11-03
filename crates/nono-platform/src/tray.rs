@@ -9,6 +9,7 @@ pub const MENU_QUIT: &str = "quit";
 pub const MENU_SOUND: &str = "sound";
 pub const MENU_WANDER: &str = "wander";
 pub const MENU_IDLE_ANIMATION: &str = "idle_animation";
+pub const MENU_FOLLOW: &str = "follow";
 pub const MENU_ACTION_PREFIX: &str = "action:";
 pub const MENU_EXPRESSION_PREFIX: &str = "expression:";
 pub const MENU_FORM_PREFIX: &str = "form:";
@@ -32,6 +33,8 @@ pub struct TrayMenu {
     pub sound: CheckMenuItem,
     pub wander: CheckMenuItem,
     pub idle_animation: CheckMenuItem,
+    /// Runtime-only toggle: follows the mouse for 20 seconds.
+    pub follow: CheckMenuItem,
     pub form_items: Vec<(u8, CheckMenuItem)>,
     pub scale_items: Vec<(f32, CheckMenuItem)>,
     // Keep the owned wrappers alive for as long as the tray lives.
@@ -145,9 +148,11 @@ pub fn build_tray(
         config.idle_animation,
         None,
     );
+    let follow = CheckMenuItem::with_id(MENU_FOLLOW, "跟随鼠标（20 秒）", true, false, None);
     menu.append(&sound)?;
     menu.append(&wander)?;
     menu.append(&idle_animation)?;
+    menu.append(&follow)?;
     menu.append(&PredefinedMenuItem::separator())?;
 
     // ── window ───────────────────────────────────────────────────────
@@ -172,6 +177,7 @@ pub fn build_tray(
         sound,
         wander,
         idle_animation,
+        follow,
         form_items,
         scale_items,
         keep_items,

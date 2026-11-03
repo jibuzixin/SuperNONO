@@ -36,6 +36,18 @@
     },
     "form1/action/shutdown": {
       "frames": 95
+    },
+    "form1/action/charge": {
+      "offset": [
+        -0.3,
+        0.9
+      ]
+    },
+    "form2/action/charge": {
+      "offset": [
+        0,
+        0.67
+      ]
     }
   }
 }

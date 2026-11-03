@@ -148,6 +148,8 @@ nono --check                            # 从应用侧校验
 | `form2/action/summon` | 结束比待机低 6.2 | `offset [0,-6.2]` |
 | `form3/action/summon` | 结束低 1.3，且第 70 帧后整段空白 | `offset [0,-1.3]` + `frames 70` |
 | `form1/action/shutdown` | 整条动画是两遍；第 94 帧第一遍结束（脸部全黑），之后重复 | `frames 95` |
+| `form1/action/charge` | 关机末帧 → 充电首帧时向右上偏约 1 单位 | `offset [-0.3, 0.9]` |
+| `form2/action/charge` | 同上，偏高 0.67 | `offset [0, 0.67]` |
 
 ## 5. 渲染细节（ThorVG）
 

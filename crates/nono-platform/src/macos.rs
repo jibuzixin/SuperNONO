@@ -3,7 +3,7 @@
 #![cfg(target_os = "macos")]
 
 use objc2::MainThreadMarker;
-use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy, NSScreen, NSView, NSWindowCollectionBehavior};
+use objc2_app_kit::{NSApplication, NSApplicationActivationPolicy, NSEvent, NSScreen, NSView, NSWindowCollectionBehavior};
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::Window;
 
@@ -86,5 +86,21 @@ pub fn visible_bounds() -> Option<nono_core::Rect> {
         top as f32 * scale,
         visible.size.width as f32 * scale,
         visible.size.height as f32 * scale,
+    ))
+}
+
+/// Current mouse position in winit's top-left physical pixel space.
+///
+/// AppKit returns points with a bottom-left origin; the primary screen's height
+/// converts it.  Multi-display setups are mapped through the primary screen.
+pub fn cursor_position() -> Option<nono_core::Point> {
+    let mtm = objc2::MainThreadMarker::new()?;
+    let screen = NSScreen::mainScreen(mtm)?;
+    let frame = screen.frame();
+    let scale = screen.backingScaleFactor() as f32;
+    let location = NSEvent::mouseLocation();
+    Some(nono_core::Point::new(
+        location.x as f32 * scale,
+        (frame.size.height - location.y) as f32 * scale,
     ))
 }

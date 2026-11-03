@@ -51,6 +51,12 @@ impl Behavior {
         self.reschedule(now);
     }
 
+    /// Pushes the next idle decision out (used after a user-driven mode such as
+    /// mouse following so the pet does not immediately wander off).
+    pub fn delay(&mut self, now: Instant) {
+        self.reschedule(now);
+    }
+
     /// When the application should next wake up to make an idle decision.
     pub fn next_wake(&self) -> Instant {
         if self.enabled {

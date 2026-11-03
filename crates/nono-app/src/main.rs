@@ -69,6 +69,9 @@ struct App {
     render_time_sum_ms: f64,
     /// Debug/automation hook: an animation id to start right after setup.
     initial_play: Option<String>,
+    /// Mouse-follow mode: when this expires, following stops.
+    follow_until: Option<Instant>,
+    follow_next: Instant,
 }
 
 impl App {
@@ -116,6 +119,8 @@ impl App {
             dirty: true,
             visible: true,
             initial_play: None,
+            follow_until: None,
+            follow_next: Instant::now(),
             render_count: 0,
             render_time_sum_ms: 0.0,
         })
@@ -470,6 +475,7 @@ impl App {
     fn play_scripted(&mut self, spec: &str, now: Instant) {
         let parts = spec.split(':').collect::<Vec<_>>();
         match parts.as_slice() {
+            ["follow"] => self.toggle_follow(now),
             ["form", form] => {
                 if let Ok(form) = form.parse::<u8>() {
                     self.switch_form(form, now);
@@ -501,6 +507,73 @@ impl App {
             }
             _ => tracing::warn!(spec, "unrecognised --play spec"),
         }
+    }
+
+    /// Tray item: follow the mouse for 20 seconds (click again to stop).
+    fn toggle_follow(&mut self, now: Instant) {
+        if self.follow_until.is_some() {
+            self.stop_follow(now);
+            return;
+        }
+        if nono_platform::cursor_position().is_none() {
+            tracing::warn!("cursor position unavailable, follow disabled");
+            return;
+        }
+        tracing::debug!("follow started (20 s)");
+        self.follow_until = Some(now + Duration::from_secs(20));
+        self.follow_next = now;
+        if let Some(tray) = &self.tray {
+            tray.follow.set_checked(true);
+        }
+        // Leave any held action / charge loop and start following on foot.
+        self.state.idle(&self.catalog, now);
+        self.sync_animation(now, false, "follow-start");
+        self.render_now(now);
+        self.bus.publish(Event::ChangeState { state: "Follow".into() });
+    }
+
+    fn stop_follow(&mut self, now: Instant) {
+        if self.follow_until.take().is_none() {
+            return;
+        }
+        if let Some(tray) = &self.tray {
+            tray.follow.set_checked(false);
+        }
+        tracing::debug!("follow stopped");
+        self.state.idle(&self.catalog, now);
+        self.behavior.delay(now);
+        self.sync_animation(now, false, "follow-stop");
+        self.render_now(now);
+        self.bus.publish(Event::ChangeState { state: self.state.mode.as_str().into() });
+    }
+
+    /// One follow step: re-target the cursor every ~150 ms so the pet keeps
+    /// walking towards it (and faces it when close enough).
+    fn follow_step(&mut self, now: Instant) {
+        let Some(cursor) = nono_platform::cursor_position() else {
+            return;
+        };
+        let target = cursor.clamp(self.bounds);
+        let distance = target.distance(self.state.anchor);
+        let close_enough = 60.0 * self.state.dpi;
+        if distance > close_enough {
+            let speed = 140.0 * self.state.dpi;
+            self.state.start_walk(&self.catalog, target, speed, now);
+        } else {
+            if self.state.mode == Mode::Walk {
+                self.state.idle(&self.catalog, now);
+            }
+            let dir = Direction::from_delta(
+                cursor.x - self.state.anchor.x,
+                cursor.y - self.state.anchor.y,
+            );
+            if dir != self.state.facing {
+                self.state.facing = dir;
+                self.state.idle(&self.catalog, now);
+            }
+        }
+        self.sync_animation(now, false, "follow");
+        self.follow_next = now + Duration::from_millis(150);
     }
 
     fn save_config(&mut self) {
@@ -543,6 +616,7 @@ impl App {
                 }
                 self.save_config();
             }
+            MENU_FOLLOW => self.toggle_follow(now),
             MENU_IDLE_ANIMATION => {
                 self.config.idle_animation = !self.config.idle_animation;
                 if let Some(tray) = &self.tray {
@@ -572,6 +646,9 @@ impl App {
     }
 
     fn switch_form(&mut self, form: u8, now: Instant) {
+        if self.follow_until.is_some() {
+            self.stop_follow(now);
+        }
         if !self.state.set_form(&self.catalog, form, now) {
             return;
         }
@@ -599,6 +676,9 @@ impl App {
     }
 
     fn menu_action(&mut self, rest: &str, now: Instant) {
+        if self.follow_until.is_some() {
+            self.stop_follow(now);
+        }
         let mut parts = rest.splitn(2, ':');
         let form = parts.next().and_then(|f| f.parse::<u8>().ok());
         let slug = parts.next().unwrap_or_default().to_string();
@@ -622,6 +702,9 @@ impl App {
     }
 
     fn menu_expression(&mut self, rest: &str, now: Instant) {
+        if self.follow_until.is_some() {
+            self.stop_follow(now);
+        }
         let mut parts = rest.splitn(2, ':');
         let form = parts.next().and_then(|f| f.parse::<u8>().ok());
         let slug = parts.next().unwrap_or_default().to_string();
@@ -645,7 +728,9 @@ impl App {
         let now = Instant::now();
         let idle = self.state.mode == Mode::Idle;
         let animating = self.state.is_animating() && (!idle || self.config.idle_animation);
-        let next = if animating {
+        let next = if self.follow_until.is_some() {
+            now + Duration::from_millis(50)
+        } else if animating {
             now + ANIMATION_POLL
         } else if self.state.mode == Mode::Action && !self.state.anim.auto_end {
             // Holding the last frame of charge/shutdown: sleep until the user
@@ -741,8 +826,11 @@ impl ApplicationHandler<UserEvent> for App {
             }
             WindowEvent::MouseInput { state, button, .. } => match (button, state) {
                 (MouseButton::Left, ElementState::Pressed) => {
-                    self.drag = Some(DragState { press_cursor: self.cursor, distance: 0.0 });
                     let now = Instant::now();
+                    if self.follow_until.is_some() {
+                        self.stop_follow(now);
+                    }
+                    self.drag = Some(DragState { press_cursor: self.cursor, distance: 0.0 });
                     if self.state.mode == Mode::Walk {
                         self.state.stop_walk(&self.catalog, now);
                         self.sync_animation(now, false, "state-change");
@@ -804,7 +892,20 @@ impl ApplicationHandler<UserEvent> for App {
             self.position_window();
         }
 
-        if self.behavior.update(&mut self.state, &self.catalog, self.bounds, now) {
+        let mut following = false;
+        if let Some(until) = self.follow_until {
+            if now >= until {
+                self.stop_follow(now);
+            } else {
+                following = true;
+                if now >= self.follow_next {
+                    self.follow_step(now);
+                }
+            }
+        }
+        if !following
+            && self.behavior.update(&mut self.state, &self.catalog, self.bounds, now)
+        {
             self.sync_animation(now, false, "state-change");
         }
         self.sync_animation(now, false, "state-change");
@@ -834,7 +935,8 @@ const USAGE: &str = "\
 用法:
   nono [--assets DIR] [--trace] [--play ID]
                                            启动桌宠（ID 如 action:1:cube、
-                                           expression:1:happy、walk:1:down、form:2）
+                                           expression:1:happy、walk:1:down、form:2、
+                                           follow）
   nono --check [--assets DIR]              校验素材目录并退出
   nono --list                              列出素材动作/表情
   nono --render-frame <form> <kind> <slug> <frame> <scale> <out.png>
