@@ -10,12 +10,25 @@ pub const MENU_SOUND: &str = "sound";
 pub const MENU_WANDER: &str = "wander";
 pub const MENU_IDLE_ANIMATION: &str = "idle_animation";
 pub const MENU_FOLLOW: &str = "follow";
+pub const MENU_TINT_PREFIX: &str = "tint:";
 pub const MENU_ACTION_PREFIX: &str = "action:";
 pub const MENU_EXPRESSION_PREFIX: &str = "expression:";
 pub const MENU_FORM_PREFIX: &str = "form:";
 pub const MENU_SCALE_PREFIX: &str = "scale:";
 
 pub const SCALE_CHOICES: [f32; 5] = [0.8, 1.0, 1.25, 1.5, 2.0];
+
+/// Body colours offered in the tray.  `None` is the original white.
+pub const TINT_PRESETS: [(&str, Option<[u8; 3]>); 8] = [
+    ("默认（白）", None),
+    ("樱花粉", Some([255, 150, 180])),
+    ("柠檬黄", Some([250, 210, 90])),
+    ("薄荷绿", Some([120, 220, 160])),
+    ("天空蓝", Some([110, 180, 255])),
+    ("葡萄紫", Some([190, 150, 255])),
+    ("蜜橙", Some([255, 170, 90])),
+    ("珊瑚红", Some([255, 120, 110])),
+];
 
 #[derive(Debug, thiserror::Error)]
 pub enum TrayError {
@@ -37,6 +50,7 @@ pub struct TrayMenu {
     pub follow: CheckMenuItem,
     pub form_items: Vec<(u8, CheckMenuItem)>,
     pub scale_items: Vec<(f32, CheckMenuItem)>,
+    pub tint_items: Vec<(Option<[u8; 3]>, CheckMenuItem)>,
     // Keep the owned wrappers alive for as long as the tray lives.
     #[allow(dead_code)]
     keep_items: Vec<MenuItem>,
@@ -54,6 +68,9 @@ impl TrayMenu {
         }
         for (scale, item) in &self.scale_items {
             item.set_checked((*scale - config.scale).abs() < 0.001);
+        }
+        for (value, item) in &self.tint_items {
+            item.set_checked(*value == config.tint);
         }
     }
 }
@@ -123,6 +140,20 @@ pub fn build_tray(
     menu.append(&forms_root)?;
     keep_submenus.push(forms_root);
 
+    let tints_root = Submenu::new("颜色", true);
+    let mut tint_items = Vec::new();
+    for (name, value) in TINT_PRESETS {
+        let id = match value {
+            None => format!("{MENU_TINT_PREFIX}default"),
+            Some(c) => format!("{MENU_TINT_PREFIX}{},{},{}", c[0], c[1], c[2]),
+        };
+        let item = CheckMenuItem::with_id(id, name, true, value == config.tint, None);
+        tints_root.append(&item)?;
+        tint_items.push((value, item));
+    }
+    menu.append(&tints_root)?;
+    keep_submenus.push(tints_root);
+
     let scales_root = Submenu::new("大小", true);
     let mut scale_items = Vec::new();
     for scale in SCALE_CHOICES {
@@ -180,6 +211,7 @@ pub fn build_tray(
         follow,
         form_items,
         scale_items,
+        tint_items,
         keep_items,
         keep_submenus,
     })

@@ -52,12 +52,16 @@ pub enum AnimationKind {
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub struct Placement {
     pub scale: f32,
+    /// Offset at the final frame (constant offset when `offset_start` is None).
     pub offset: (f32, f32),
+    /// Optional offset at the first frame; interpolated to `offset` so both
+    /// ends of the animation can line up (form-2 boot drifts internally).
+    pub offset_start: Option<(f32, f32)>,
 }
 
 impl Default for Placement {
     fn default() -> Self {
-        Self { scale: 1.0, offset: (0.0, 0.0) }
+        Self { scale: 1.0, offset: (0.0, 0.0), offset_start: None }
     }
 }
 
@@ -241,6 +245,8 @@ struct PlacementDef {
     scale: f32,
     #[serde(default)]
     offset: [f32; 2],
+    #[serde(default)]
+    offset_start: Option<[f32; 2]>,
     /// Trim the playback after this many frames (duplicate/empty tails in the
     /// source conversions).
     #[serde(default)]
@@ -505,6 +511,9 @@ impl Catalog {
                     placement: Placement {
                         scale: def.scale,
                         offset: (def.offset[0], def.offset[1]),
+                        offset_start: def
+                            .offset_start
+                            .map(|o| (o[0], o[1])),
                     },
                     frames: def.frames,
                 },
@@ -617,7 +626,9 @@ mod tests {
             Some(Direction::Down)
         );
         // assets/tuning.json compensates the form-2 boot/cube conversion.
-        assert!(catalog.action_spec(2, "boot").unwrap().placement.offset.1 > 0.0);
+        let boot = catalog.action_spec(2, "boot").unwrap().placement;
+        assert!(boot.offset.1 > 0.0);
+        assert!(boot.offset_start.is_some(), "form-2 boot needs a start-correction ramp");
         assert!(catalog.action_spec(2, "cube").unwrap().placement.scale < 0.9);
         assert_eq!(
             catalog.walk_spec(2, Direction::Down).unwrap().placement,

@@ -63,6 +63,12 @@ pub struct Renderer {
     width: u32,
     height: u32,
     loaded_id: Option<String>,
+    placement: nono_core::catalog::Placement,
+    applied_offset: (f32, f32),
+    base_px: (f32, f32),
+    pixel_scale: f32,
+    frame_count: u32,
+    tint: Option<[u8; 3]>,
 }
 
 impl std::fmt::Debug for Renderer {
@@ -90,7 +96,49 @@ impl Renderer {
             width: 0,
             height: 0,
             loaded_id: None,
+            placement: Default::default(),
+            applied_offset: (0.0, 0.0),
+            base_px: (0.0, 0.0),
+            pixel_scale: 1.0,
+            frame_count: 1,
+            tint: None,
         })
+    }
+
+    /// Recolours the white/neutral body pixels on every frame.  The assets are
+    /// untouched; pass `None` to restore the original white.
+    pub fn set_tint(&mut self, tint: Option<[u8; 3]>) {
+        self.tint = tint;
+    }
+
+    fn apply_tint(&mut self) {
+        let Some(tint) = self.tint else { return };
+        // The buffer is premultiplied RGBA (little-endian u32).
+        let bytes = unsafe {
+            std::slice::from_raw_parts_mut(
+                self.buffer.as_mut_ptr() as *mut u8,
+                self.buffer.len() * std::mem::size_of::<u32>(),
+            )
+        };
+        let (tr, tg, tb) = (tint[0] as u32, tint[1] as u32, tint[2] as u32);
+        for px in bytes.chunks_exact_mut(4) {
+            let a = px[3];
+            if a <= 8 {
+                continue;
+            }
+            let (r, g, b) = (px[0], px[1], px[2]);
+            let max = r.max(g).max(b);
+            let min = r.min(g).min(b);
+            // Near-neutral and light: the white shell and its shading.  Dark
+            // grey/black details (visor, outlines, shadow) and the cyan ears
+            // are left alone.
+            if max.saturating_sub(min) <= 24 && max >= 120 {
+                let k = max as u32;
+                px[0] = (tr * k / 255) as u8;
+                px[1] = (tg * k / 255) as u8;
+                px[2] = (tb * k / 255) as u8;
+            }
+        }
     }
 
     pub fn loaded_id(&self) -> Option<&str> {
@@ -163,14 +211,21 @@ impl Renderer {
                 .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "non-utf8 path"))?,
         )?;
         // Per-animation placement correction (see assets/tuning.json).
-        // Scaling happens around the pet anchor so the feet stay put.
-        let k = spec.placement.scale.max(0.05);
+        // Scaling happens around the pet anchor so the feet stay put.  A start
+        // offset can differ from the end offset; it is interpolated per frame.
+        let placement = spec.placement;
+        let k = placement.scale.max(0.05);
         anim.set_size(width as f32 * k, height as f32 * k)?;
-        let origin_x =
-            spec.pet_anchor.0 * scale * (1.0 - k) + spec.placement.offset.0 * scale;
-        let origin_y =
-            spec.pet_anchor.1 * scale * (1.0 - k) + spec.placement.offset.1 * scale;
-        anim.picture_mut().translate(origin_x, origin_y)?;
+        let start = placement.offset_start.unwrap_or(placement.offset);
+        let base_x = spec.pet_anchor.0 * scale * (1.0 - k);
+        let base_y = spec.pet_anchor.1 * scale * (1.0 - k);
+        anim.picture_mut()
+            .translate(base_x + start.0 * scale, base_y + start.1 * scale)?;
+        self.placement = placement;
+        self.applied_offset = start;
+        self.base_px = (base_x, base_y);
+        self.pixel_scale = scale;
+        self.frame_count = spec.effective_frames();
         // ThorVG reports `InsufficientCondition` when the requested frame equals
         // the current one, so frame 0 (the loader default) is not set here.
 
@@ -186,6 +241,7 @@ impl Renderer {
         canvas.update()?;
         canvas.draw(true)?;
         canvas.sync()?;
+        self.apply_tint();
 
         self.anim = Some(anim);
         self.loaded_id = Some(spec.id.clone());
@@ -199,7 +255,36 @@ impl Renderer {
     /// current one, so that case is skipped instead of treated as an error.
     pub fn render_frame(&mut self, frame: f32) -> Result<(), RenderError> {
         let target = frame.max(0.0);
+        // Interpolate the placement offset so animations whose start and end
+        // need different corrections (form-2 boot) stay aligned at both ends.
+        let start = self
+            .placement
+            .offset_start
+            .unwrap_or(self.placement.offset);
+        let end = self.placement.offset;
+        let t = if self.frame_count > 1 {
+            (target / (self.frame_count - 1) as f32).clamp(0.0, 1.0)
+        } else {
+            1.0
+        };
+        let desired = (
+            start.0 + (end.0 - start.0) * t,
+            start.1 + (end.1 - start.1) * t,
+        );
+        let delta = (
+            (desired.0 - self.applied_offset.0).abs(),
+            (desired.1 - self.applied_offset.1).abs(),
+        );
         let anim = self.anim.as_mut().ok_or(RenderError::NotLoaded)?;
+        if delta.0 > 0.001 || delta.1 > 0.001 {
+            // `Picture::translate` sets the translation (it does not accumulate),
+            // so always pass the absolute position in canvas pixels.
+            anim.picture_mut().translate(
+                self.base_px.0 + desired.0 * self.pixel_scale,
+                self.base_px.1 + desired.1 * self.pixel_scale,
+            )?;
+            self.applied_offset = desired;
+        }
         let current = anim.frame().unwrap_or(-1.0);
         if (current - target).abs() > 0.0009 {
             anim.set_frame(target)?;
@@ -208,6 +293,7 @@ impl Renderer {
         canvas.update()?;
         canvas.draw(true)?;
         canvas.sync()?;
+        self.apply_tint();
         Ok(())
     }
 
@@ -217,6 +303,7 @@ impl Renderer {
         canvas.update()?;
         canvas.draw(true)?;
         canvas.sync()?;
+        self.apply_tint();
         Ok(())
     }
 
@@ -312,6 +399,42 @@ mod tests {
         // The pet occupies a small part of the canvas but it must be visible.
         let opaque = second.chunks(4).filter(|px| px[3] > 8).count();
         assert!(opaque > 100, "only {opaque} opaque pixels rendered");
+    }
+
+    #[test]
+    fn tint_recolours_the_white_body_only() {
+        let _guard = THORVG_LOCK.lock().unwrap();
+        let root = assets_root();
+        if !root.join("catalog.json").is_file() {
+            return;
+        }
+        let catalog = Catalog::load(&root).unwrap();
+        let spec = catalog.walk_spec(1, Direction::Down).unwrap();
+        let mut renderer = Renderer::new().unwrap();
+        renderer.load(&spec, 2.5).unwrap();
+        renderer.render_frame(0.0).unwrap();
+        let before = renderer.rgba8().to_vec();
+        assert!(
+            before.chunks_exact(4).any(|p| p[3] > 240 && p[0] > 240 && p[1] > 240 && p[2] > 240),
+            "walk frame 0 must contain white body pixels"
+        );
+        let cyan_index = before
+            .chunks_exact(4)
+            .position(|p| p[3] > 200 && p[0] < 120 && p[1] > 150 && p[2] > 150);
+        assert!(cyan_index.is_some(), "walk frame must contain cyan ears");
+
+        renderer.set_tint(Some([255, 0, 0]));
+        renderer.render_frame(0.0).unwrap();
+        let after = renderer.rgba8().to_vec();
+        let red = after
+            .chunks_exact(4)
+            .filter(|p| p[3] > 240 && p[0] > 200 && p[1] < 40 && p[2] < 40)
+            .count();
+        assert!(red > 50, "expected red-tinted body pixels, got {red}");
+        // Cyan ears and fins are not neutral, so they keep their colour.
+        let i = cyan_index.unwrap();
+        let p = &after[i * 4..i * 4 + 4];
+        assert!(p[1] > 120 && p[2] > 120, "cyan must survive tinting");
     }
 
     #[test]

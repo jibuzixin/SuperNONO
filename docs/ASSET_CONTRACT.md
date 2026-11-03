@@ -134,7 +134,9 @@ nono --check                            # 从应用侧校验
 ```
 
 - `scale`：以 `petAnchor` 为中心缩放（1.0 为原始）。
-- `offset`：在画布单位下的平移（正 y 向下）。
+- `offset`：末帧的平移（画布单位，正 y 向下）；没有 `offset_start` 时全程恒定。
+- `offset_start`：可选的起始偏移。给出后从首帧到末帧线性插值，用于首尾都需要对齐的
+  动画（形态 2 开机：起始对齐关机、结束对齐待机）。
 - `frames`：只播放前 N 帧，用来裁掉源素材里重复或空白的尾巴。
 - 键是运行时动画 id：`form2/action/boot`、`form2/walk/down`、`form2/expr/happy`。
 
@@ -142,7 +144,7 @@ nono --check                            # 从应用侧校验
 
 | 动画 | 问题 | 修正 |
 |---|---|---|
-| `form2/action/boot` | 结束位置比待机高 2.5 | `offset [0, 2.5]` |
+| `form2/action/boot` | 结束位置比待机高 2.5；起始又比关机低 1.33 | `offset [0, 2.5]`, `offset_start [0, 1.17]` |
 | `form2/action/cube` | 宠物大约 1.21 倍（面罩 30.7 vs 25.3） | `scale 0.83` + `offset [0,-2.4]` |
 | `form1/action/summon` | 结束比待机低 3.6 | `offset [0,-3.6]` |
 | `form2/action/summon` | 结束比待机低 6.2 | `offset [0,-6.2]` |
@@ -157,6 +159,11 @@ nono --check                            # 从应用侧校验
 - 帧号允许小数，但 `set_frame` 与当前帧相差 < 0.0009 时会返回
   `InsufficientCondition`，调用方应视为「无需更新」。
 - 画布是预乘 `ABGR8888`，小端内存里是 RGBA。
+
+## 5.1 换色（运行时，不属于素材）
+
+外壳换色在渲染层完成（预乘 RGBA 后处理，只改近中性且明亮的像素），不改 Lottie。
+配置项 `tint = [r, g, b]`，`None`/缺省即原始白色。详见架构文档「换色」一节。
 
 ## 6. 新增素材
 

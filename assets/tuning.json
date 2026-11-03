@@ -6,6 +6,10 @@
       "offset": [
         0,
         2.5
+      ],
+      "offset_start": [
+        0,
+        1.17
       ]
     },
     "form2/action/cube": {

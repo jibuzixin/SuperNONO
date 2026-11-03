@@ -25,6 +25,9 @@ pub struct Config {
     /// Screen-space (physical px) position of the pet's feet.  `None` means
     /// "pick a spot on the primary monitor at startup".
     pub anchor: Option<Point>,
+    /// Recolour the white body parts, without touching the assets.  `None`
+    /// keeps the original white.
+    pub tint: Option<[u8; 3]>,
 }
 
 impl Default for Config {
@@ -39,6 +42,7 @@ impl Default for Config {
             roam_min_secs: 6.0,
             roam_max_secs: 16.0,
             anchor: None,
+            tint: None,
         }
     }
 }
@@ -155,11 +159,13 @@ mod tests {
         let mut config = Config::default();
         config.form = 2;
         config.anchor = Some(Point::new(1200.0, 800.0));
+        config.tint = Some([255, 150, 180]);
         let text = toml::to_string_pretty(&config).unwrap();
         let back: Config = toml::from_str(&text).unwrap();
         assert_eq!(back.form, 2);
         assert_eq!(back.scale, config.scale);
         assert_eq!(back.anchor, config.anchor);
+        assert_eq!(back.tint, Some([255, 150, 180]));
     }
 
     #[test]

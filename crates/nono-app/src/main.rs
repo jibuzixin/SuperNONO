@@ -72,6 +72,9 @@ struct App {
     /// Mouse-follow mode: when this expires, following stops.
     follow_until: Option<Instant>,
     follow_next: Instant,
+    /// Delay before `initial_play` runs (debug/automation).
+    play_delay: f32,
+    scheduled_play: Option<(Instant, String)>,
 }
 
 impl App {
@@ -121,6 +124,8 @@ impl App {
             initial_play: None,
             follow_until: None,
             follow_next: Instant::now(),
+            play_delay: 0.0,
+            scheduled_play: None,
             render_count: 0,
             render_time_sum_ms: 0.0,
         })
@@ -220,13 +225,19 @@ impl App {
 
         self.audio.set_enabled(self.config.sound);
         self.audio.set_volume(self.config.volume);
+        self.renderer.set_tint(self.config.tint);
 
         self.sync_animation(now, true, "setup");
         self.render_now(now);
         self.bus.publish(Event::ChangeForm { form: self.state.form });
 
         if let Some(play) = self.initial_play.clone() {
-            self.play_scripted(&play, now);
+            if self.play_delay > 0.0 {
+                self.scheduled_play =
+                    Some((now + Duration::from_secs_f32(self.play_delay), play));
+            } else {
+                self.play_scripted(&play, now);
+            }
         }
         Ok(())
     }
@@ -240,6 +251,21 @@ impl App {
         }
         let rect = self.visible_rect();
         let dpi = self.state.dpi;
+        let scale = self.state.scale * self.state.dpi;
+        // Load BEFORE resizing the window: a cold Lottie parse on the first play
+        // must not leave an empty, already-enlarged window on screen.
+        let load_started = Instant::now();
+        match self.renderer.load(&self.state.anim, scale) {
+            Ok(()) => tracing::debug!(
+                anim = %anim_id,
+                load_ms = load_started.elapsed().as_secs_f64() * 1000.0,
+                "animation loaded"
+            ),
+            Err(err) => {
+                tracing::warn!(%err, anim = %anim_id, "rendering the animation failed");
+                return;
+            }
+        }
         if let Some(window) = &self.window {
             let _ = window.request_inner_size(PhysicalSize::new(rect.w as u32, rect.h as u32));
             window.set_outer_position(PhysicalPosition::new(rect.x as i32, rect.y as i32));
@@ -250,17 +276,10 @@ impl App {
                 tracing::debug!(%err, "set_cursor_hittest failed");
             }
         }
-
-        let scale = self.state.scale * self.state.dpi;
-        match self.renderer.load(&self.state.anim, scale) {
-            Ok(()) => {
-                if let Some(presenter) = self.presenter.as_mut() {
-                    if let Err(err) = presenter.resize(rect.w as u32, rect.h as u32, dpi as f64) {
-                        tracing::warn!(%err, "presenter resize failed");
-                    }
-                }
+        if let Some(presenter) = self.presenter.as_mut() {
+            if let Err(err) = presenter.resize(rect.w as u32, rect.h as u32, dpi as f64) {
+                tracing::warn!(%err, "presenter resize failed");
             }
-            Err(err) => tracing::warn!(%err, anim = %anim_id, "rendering the animation failed"),
         }
 
         self.audio.stop();
@@ -576,6 +595,32 @@ impl App {
         self.follow_next = now + Duration::from_millis(150);
     }
 
+    /// Applies a palette choice (`default` or `r,g,b`) without touching assets.
+    fn apply_tint(&mut self, spec: &str, now: Instant) {
+        let tint = if spec == "default" {
+            None
+        } else {
+            let parts = spec
+                .split(',')
+                .filter_map(|p| p.parse::<u8>().ok())
+                .collect::<Vec<_>>();
+            if parts.len() == 3 {
+                Some([parts[0], parts[1], parts[2]])
+            } else {
+                tracing::warn!(spec, "invalid tint");
+                return;
+            }
+        };
+        self.config.tint = tint;
+        self.renderer.set_tint(tint);
+        self.render_now(now);
+        self.save_config();
+        if let Some(tray) = &self.tray {
+            tray.sync_checks(&self.config);
+        }
+        tracing::debug!(?tint, "tint changed");
+    }
+
     fn save_config(&mut self) {
         self.config.anchor = Some(self.state.anchor);
         if let Err(err) = self.config.save(&self.config_path) {
@@ -640,6 +685,8 @@ impl App {
                     self.menu_action(rest, now);
                 } else if let Some(rest) = id.strip_prefix(MENU_EXPRESSION_PREFIX) {
                     self.menu_expression(rest, now);
+                } else if let Some(rest) = id.strip_prefix(MENU_TINT_PREFIX) {
+                    self.apply_tint(rest, now);
                 }
             }
         }
@@ -880,6 +927,13 @@ impl ApplicationHandler<UserEvent> for App {
         }
         let now = Instant::now();
 
+        if let Some((at, spec)) = self.scheduled_play.clone() {
+            if now >= at {
+                self.scheduled_play = None;
+                self.play_scripted(&spec, now);
+            }
+        }
+
         let tick = self.state.tick(&self.catalog, now);
         if tick.finished {
             let anim_id = self.state.anim.id.clone();
@@ -947,7 +1001,7 @@ const USAGE: &str = "\
 ";
 
 enum Command {
-    Run { assets: PathBuf, trace: bool, play: Option<String> },
+    Run { assets: PathBuf, trace: bool, play: Option<String>, play_delay: f32 },
     Check { assets: PathBuf },
     List { assets: PathBuf },
     RenderFrame { assets: PathBuf, form: u8, kind: String, slug: String, frame: f32, scale: f32, out: PathBuf },
@@ -959,6 +1013,7 @@ fn parse_args() -> Result<Command> {
     let mut assets = config::default_asset_root();
     let mut trace = false;
     let mut play: Option<String> = None;
+    let mut play_delay = 0.0f32;
     let mut command: Option<Command> = None;
 
     let mut i = 0;
@@ -973,6 +1028,16 @@ fn parse_args() -> Result<Command> {
             "--play" => {
                 i += 1;
                 play = Some(args.get(i).context("--play needs an id like action:1:cube")?.clone());
+            }
+            "--play-after" => {
+                i += 1;
+                play_delay = args
+                    .get(i)
+                    .context("--play-after needs a delay in seconds")?
+                    .parse::<f32>()
+                    .context("delay must be a number")?;
+                i += 1;
+                play = Some(args.get(i).context("--play-after needs an id")?.clone());
             }
             "--check" => command = Some(Command::Check { assets: assets.clone() }),
             "--list" => command = Some(Command::List { assets: assets.clone() }),
@@ -1007,7 +1072,7 @@ fn parse_args() -> Result<Command> {
         i += 1;
     }
 
-    Ok(command.unwrap_or(Command::Run { assets, trace, play }))
+    Ok(command.unwrap_or(Command::Run { assets, trace, play, play_delay }))
 }
 
 fn init_tracing(trace: bool) {
@@ -1109,11 +1174,11 @@ fn main() -> Result<()> {
             init_tracing(false);
             render_icon(assets, out, size)
         }
-        Command::Run { assets, trace, play } => run(assets, trace, play),
+        Command::Run { assets, trace, play, play_delay } => run(assets, trace, play, play_delay),
     }
 }
 
-fn run(assets: PathBuf, trace: bool, play: Option<String>) -> Result<()> {
+fn run(assets: PathBuf, trace: bool, play: Option<String>, play_delay: f32) -> Result<()> {
     init_tracing(trace);
     let catalog = Catalog::load(&assets)
         .with_context(|| format!("loading assets from {}", assets.display()))?;
@@ -1135,6 +1200,7 @@ fn run(assets: PathBuf, trace: bool, play: Option<String>) -> Result<()> {
 
     let mut app = App::new(assets, catalog, config, config_path, proxy)?;
     app.initial_play = play;
+    app.play_delay = play_delay;
     event_loop.run_app(&mut app).context("running the event loop")?;
     Ok(())
 }
