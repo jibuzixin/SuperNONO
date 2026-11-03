@@ -613,6 +613,7 @@ impl App {
         };
         self.config.tint = tint;
         self.renderer.set_tint(tint);
+        // The tint is applied to the pixels of the current frame.
         self.render_now(now);
         self.save_config();
         if let Some(tray) = &self.tray {
@@ -1001,11 +1002,11 @@ const USAGE: &str = "\
 ";
 
 enum Command {
-    Run { assets: PathBuf, trace: bool, play: Option<String>, play_delay: f32 },
+    Run { assets: PathBuf, trace: bool, play: Option<String>, play_delay: f32, tint: Option<[u8; 3]> },
     Check { assets: PathBuf },
     List { assets: PathBuf },
-    RenderFrame { assets: PathBuf, form: u8, kind: String, slug: String, frame: f32, scale: f32, out: PathBuf },
-    RenderIcon { assets: PathBuf, out: PathBuf, size: u32 },
+    RenderFrame { assets: PathBuf, form: u8, kind: String, slug: String, frame: f32, scale: f32, out: PathBuf, tint: Option<[u8; 3]> },
+    RenderIcon { assets: PathBuf, out: PathBuf, size: u32, tint: Option<[u8; 3]> },
 }
 
 fn parse_args() -> Result<Command> {
@@ -1014,6 +1015,7 @@ fn parse_args() -> Result<Command> {
     let mut trace = false;
     let mut play: Option<String> = None;
     let mut play_delay = 0.0f32;
+    let mut tint: Option<[u8; 3]> = None;
     let mut command: Option<Command> = None;
 
     let mut i = 0;
@@ -1025,6 +1027,14 @@ fn parse_args() -> Result<Command> {
                 assets = PathBuf::from(value);
             }
             "--trace" => trace = true,
+            "--tint" => {
+                i += 1;
+                let value = args.get(i).context("--tint needs rrggbb or r,g,b")?;
+                tint = parse_tint(value);
+                if tint.is_none() {
+                    bail!("invalid --tint {value:?} (use rrggbb or r,g,b)");
+                }
+            }
             "--play" => {
                 i += 1;
                 play = Some(args.get(i).context("--play needs an id like action:1:cube")?.clone());
@@ -1051,7 +1061,7 @@ fn parse_args() -> Result<Command> {
                 let frame = args[i + 4].parse::<f32>().context("frame must be a number")?;
                 let scale = args[i + 5].parse::<f32>().context("scale must be a number")?;
                 let out = PathBuf::from(&args[i + 6]);
-                command = Some(Command::RenderFrame { assets: assets.clone(), form, kind, slug, frame, scale, out });
+                command = Some(Command::RenderFrame { assets: assets.clone(), form, kind, slug, frame, scale, out, tint });
                 i += 6;
             }
             "--render-icon" => {
@@ -1060,7 +1070,7 @@ fn parse_args() -> Result<Command> {
                 }
                 let out = PathBuf::from(&args[i + 1]);
                 let size = args.get(i + 2).and_then(|s| s.parse::<u32>().ok()).unwrap_or(64);
-                command = Some(Command::RenderIcon { assets: assets.clone(), out, size });
+                command = Some(Command::RenderIcon { assets: assets.clone(), out, size, tint });
                 i += if args.get(i + 2).is_some() { 2 } else { 1 };
             }
             "--help" | "-h" => {
@@ -1072,7 +1082,28 @@ fn parse_args() -> Result<Command> {
         i += 1;
     }
 
-    Ok(command.unwrap_or(Command::Run { assets, trace, play, play_delay }))
+    Ok(command.unwrap_or(Command::Run { assets, trace, play, play_delay, tint }))
+}
+
+fn parse_tint(value: &str) -> Option<[u8; 3]> {
+    if value.contains(',') {
+        let parts = value
+            .split(',')
+            .filter_map(|p| p.trim().parse::<u8>().ok())
+            .collect::<Vec<_>>();
+        if parts.len() == 3 {
+            return Some([parts[0], parts[1], parts[2]]);
+        }
+        return None;
+    }
+    let hex = value.trim_start_matches('#');
+    if hex.len() == 6 {
+        let r = u8::from_str_radix(&hex[0..2], 16).ok()?;
+        let g = u8::from_str_radix(&hex[2..4], 16).ok()?;
+        let b = u8::from_str_radix(&hex[4..6], 16).ok()?;
+        return Some([r, g, b]);
+    }
+    None
 }
 
 fn init_tracing(trace: bool) {
@@ -1102,10 +1133,11 @@ fn spec_for(catalog: &Catalog, form: u8, kind: &str, slug: &str) -> Result<nono_
     Ok(spec)
 }
 
-fn render_icon(assets: PathBuf, out: PathBuf, size: u32) -> Result<()> {
+fn render_icon(assets: PathBuf, out: PathBuf, size: u32, tint: Option<[u8; 3]>) -> Result<()> {
     let catalog = Catalog::load(&assets)?;
     let spec = catalog.walk_spec(catalog.default_form(), Direction::Down)?;
     let mut renderer = Renderer::new()?;
+    renderer.set_tint(tint);
     // Render at the icon width so the vector art is rasterised crisply.
     let scale = size as f32 / spec.canvas.0;
     renderer.load(&spec, scale)?;
@@ -1156,11 +1188,12 @@ fn main() -> Result<()> {
             }
             Ok(())
         }
-        Command::RenderFrame { assets, form, kind, slug, frame, scale, out } => {
+        Command::RenderFrame { assets, form, kind, slug, frame, scale, out, tint } => {
             init_tracing(false);
             let catalog = Catalog::load(&assets)?;
             let spec = spec_for(&catalog, form, &kind, &slug)?;
             let mut renderer = Renderer::new()?;
+            renderer.set_tint(tint);
             renderer.render_png(&spec, scale, frame, &out)?;
             println!(
                 "wrote {} ({}x{}, form {form} {kind} {slug} frame {frame})",
@@ -1170,20 +1203,23 @@ fn main() -> Result<()> {
             );
             Ok(())
         }
-        Command::RenderIcon { assets, out, size } => {
+        Command::RenderIcon { assets, out, size, tint } => {
             init_tracing(false);
-            render_icon(assets, out, size)
+            render_icon(assets, out, size, tint)
         }
-        Command::Run { assets, trace, play, play_delay } => run(assets, trace, play, play_delay),
+        Command::Run { assets, trace, play, play_delay, tint } => run(assets, trace, play, play_delay, tint),
     }
 }
 
-fn run(assets: PathBuf, trace: bool, play: Option<String>, play_delay: f32) -> Result<()> {
+fn run(assets: PathBuf, trace: bool, play: Option<String>, play_delay: f32, tint: Option<[u8; 3]>) -> Result<()> {
     init_tracing(trace);
     let catalog = Catalog::load(&assets)
         .with_context(|| format!("loading assets from {}", assets.display()))?;
     let config_path = config::config_path();
-    let config = Config::load(&config_path);
+    let mut config = Config::load(&config_path);
+    if let Some(tint) = tint {
+        config.tint = Some(tint);
+    }
     tracing::info!(
         assets = %assets.display(),
         config = %config_path.display(),
@@ -1225,7 +1261,7 @@ mod tests {
             return;
         }
         let out = std::env::temp_dir().join("nono-test-icon.png");
-        render_icon(assets, out.clone(), 48).unwrap();
+        render_icon(assets, out.clone(), 48, None).unwrap();
         let img = image::open(&out).unwrap();
         assert_eq!(img.width(), 48);
         assert!(img.to_rgba8().chunks(4).any(|px| px[3] > 0));

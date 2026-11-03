@@ -68,6 +68,7 @@ pub struct Renderer {
     base_px: (f32, f32),
     pixel_scale: f32,
     frame_count: u32,
+    walk_animation: bool,
     tint: Option<[u8; 3]>,
 }
 
@@ -101,42 +102,125 @@ impl Renderer {
             base_px: (0.0, 0.0),
             pixel_scale: 1.0,
             frame_count: 1,
+            walk_animation: false,
             tint: None,
         })
     }
 
-    /// Recolours the white/neutral body pixels on every frame.  The assets are
-    /// untouched; pass `None` to restore the original white.
+    /// Recolours the character's white body parts.  The assets are untouched;
+    /// `None` restores the original white.
     pub fn set_tint(&mut self, tint: Option<[u8; 3]>) {
-        self.tint = tint;
+        // Pure white means "no tint", exactly like the original assets.
+        self.tint = tint.filter(|t| *t != [255, 255, 255]);
     }
 
+    /// Tints the character's white body pixels only.
+    ///
+    /// The body is found as the large white connected regions around the black
+    /// visor.  Sweat drops are tiny components, thought bubbles / lightbulbs are
+    /// far from the visor, and props such as the cube are not pure white
+    /// (their whites are ~0.97), so none of them are touched.  Cyan parts and
+    /// grey/beige shading are not near-white and stay as they are.
     fn apply_tint(&mut self) {
         let Some(tint) = self.tint else { return };
-        // The buffer is premultiplied RGBA (little-endian u32).
+        let w = self.width as usize;
+        let h = self.height as usize;
+        if w == 0 || h == 0 {
+            return;
+        }
         let bytes = unsafe {
             std::slice::from_raw_parts_mut(
                 self.buffer.as_mut_ptr() as *mut u8,
                 self.buffer.len() * std::mem::size_of::<u32>(),
             )
         };
-        let (tr, tg, tb) = (tint[0] as u32, tint[1] as u32, tint[2] as u32);
-        for px in bytes.chunks_exact_mut(4) {
-            let a = px[3];
-            if a <= 8 {
+        const STRIDE: usize = 4;
+        let dw = w.div_ceil(STRIDE);
+        let dh = h.div_ceil(STRIDE);
+        let mut white = vec![false; dw * dh];
+        let mut dark = vec![false; dw * dh];
+
+        // Down-sampled masks: near-white body candidates and dark visor pixels.
+        for y in 0..h {
+            let row = y * w * 4;
+            let cell_row = (y / STRIDE) * dw;
+            for x in 0..w {
+                let i = row + x * 4;
+                let a = bytes[i + 3];
+                if a <= 8 {
+                    continue;
+                }
+                let r = bytes[i] as u32;
+                let g = bytes[i + 1] as u32;
+                let b = bytes[i + 2] as u32;
+                let mx = r.max(g).max(b);
+                let mn = r.min(g).min(b);
+                let cell = cell_row + x / STRIDE;
+                if mn * 100 >= a as u32 * 99 && mx - mn <= 10 {
+                    white[cell] = true;
+                }
+                if a > 200 && mx < 60 {
+                    dark[cell] = true;
+                }
+            }
+        }
+
+        let (white_labels, white_stats) = label_mask(&white, dw, dh);
+        let (_, dark_stats) = label_mask(&dark, dw, dh);
+        let visor = dark_stats
+            .iter()
+            .max_by_key(|s| s.cells)
+            .map(|s| (s.sum_x as f32 / s.cells as f32, s.sum_y as f32 / s.cells as f32));
+
+        let scale = self.pixel_scale.max(0.01);
+        let mut selected = vec![false; white_stats.len() + 1];
+        for (i, stat) in white_stats.iter().enumerate() {
+            let area_units =
+                stat.cells as f32 * (STRIDE * STRIDE) as f32 / (scale * scale);
+            if area_units < 20.0 {
                 continue;
             }
-            let (r, g, b) = (px[0], px[1], px[2]);
-            let max = r.max(g).max(b);
-            let min = r.min(g).min(b);
-            // Near-neutral and light: the white shell and its shading.  Dark
-            // grey/black details (visor, outlines, shadow) and the cyan ears
-            // are left alone.
-            if max.saturating_sub(min) <= 24 && max >= 120 {
-                let k = max as u32;
-                px[0] = (tr * k / 255) as u8;
-                px[1] = (tg * k / 255) as u8;
-                px[2] = (tb * k / 255) as u8;
+            let keep = if self.walk_animation {
+                true
+            } else if let Some((vx, vy)) = visor {
+                let cx = stat.sum_x as f32 / stat.cells as f32;
+                let cy = stat.sum_y as f32 / stat.cells as f32;
+                let dist = ((cx - vx).powi(2) + (cy - vy).powi(2)).sqrt() * STRIDE as f32 / scale;
+                dist <= 45.0
+            } else {
+                true
+            };
+            if keep {
+                selected[i + 1] = true;
+            }
+        }
+
+        // Tint only pixels whose connected region was selected.
+        for y in 0..h {
+            let row = y * w * 4;
+            let cell_row = (y / STRIDE) * dw;
+            for x in 0..w {
+                let i = row + x * 4;
+                let a = bytes[i + 3];
+                if a <= 8 {
+                    continue;
+                }
+                let r = bytes[i] as u32;
+                let g = bytes[i + 1] as u32;
+                let b = bytes[i + 2] as u32;
+                let mx = r.max(g).max(b);
+                let mn = r.min(g).min(b);
+                if mn * 100 < a as u32 * 99 || mx - mn > 10 {
+                    continue;
+                }
+                let cell = cell_row + x / STRIDE;
+                if !selected[white_labels[cell] as usize] {
+                    continue;
+                }
+                let k = mx;
+                bytes[i] = (tint[0] as u32 * k / 255) as u8;
+                bytes[i + 1] = (tint[1] as u32 * k / 255) as u8;
+                bytes[i + 2] = (tint[2] as u32 * k / 255) as u8;
             }
         }
     }
@@ -226,6 +310,7 @@ impl Renderer {
         self.base_px = (base_x, base_y);
         self.pixel_scale = scale;
         self.frame_count = spec.effective_frames();
+        self.walk_animation = spec.kind == nono_core::AnimationKind::Walk;
         // ThorVG reports `InsufficientCondition` when the requested frame equals
         // the current one, so frame 0 (the loader default) is not set here.
 
@@ -338,6 +423,56 @@ impl Renderer {
     }
 }
 
+
+
+#[derive(Default, Clone, Copy)]
+struct RegionStat {
+    cells: u32,
+    sum_x: u64,
+    sum_y: u64,
+}
+
+/// 4-connected component labelling on a down-sampled mask.
+fn label_mask(mask: &[bool], dw: usize, dh: usize) -> (Vec<u32>, Vec<RegionStat>) {
+    let mut labels = vec![0u32; mask.len()];
+    let mut stats: Vec<RegionStat> = Vec::new();
+    let mut stack: Vec<usize> = Vec::new();
+    for start in 0..mask.len() {
+        if !mask[start] || labels[start] != 0 {
+            continue;
+        }
+        let id = (stats.len() + 1) as u32;
+        stats.push(RegionStat::default());
+        labels[start] = id;
+        stack.push(start);
+        while let Some(i) = stack.pop() {
+            let x = i % dw;
+            let y = i / dw;
+            let stat = &mut stats[(id - 1) as usize];
+            stat.cells += 1;
+            stat.sum_x += x as u64;
+            stat.sum_y += y as u64;
+            if x > 0 {
+                let j = i - 1;
+                if mask[j] && labels[j] == 0 { labels[j] = id; stack.push(j); }
+            }
+            if x + 1 < dw {
+                let j = i + 1;
+                if mask[j] && labels[j] == 0 { labels[j] = id; stack.push(j); }
+            }
+            if y > 0 {
+                let j = i - dw;
+                if mask[j] && labels[j] == 0 { labels[j] = id; stack.push(j); }
+            }
+            if y + 1 < dh {
+                let j = i + dw;
+                if mask[j] && labels[j] == 0 { labels[j] = id; stack.push(j); }
+            }
+        }
+    }
+    (labels, stats)
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -411,19 +546,8 @@ mod tests {
         let catalog = Catalog::load(&root).unwrap();
         let spec = catalog.walk_spec(1, Direction::Down).unwrap();
         let mut renderer = Renderer::new().unwrap();
-        renderer.load(&spec, 2.5).unwrap();
-        renderer.render_frame(0.0).unwrap();
-        let before = renderer.rgba8().to_vec();
-        assert!(
-            before.chunks_exact(4).any(|p| p[3] > 240 && p[0] > 240 && p[1] > 240 && p[2] > 240),
-            "walk frame 0 must contain white body pixels"
-        );
-        let cyan_index = before
-            .chunks_exact(4)
-            .position(|p| p[3] > 200 && p[0] < 120 && p[1] > 150 && p[2] > 150);
-        assert!(cyan_index.is_some(), "walk frame must contain cyan ears");
-
         renderer.set_tint(Some([255, 0, 0]));
+        renderer.load(&spec, 2.5).unwrap();
         renderer.render_frame(0.0).unwrap();
         let after = renderer.rgba8().to_vec();
         let red = after
@@ -431,10 +555,57 @@ mod tests {
             .filter(|p| p[3] > 240 && p[0] > 200 && p[1] < 40 && p[2] < 40)
             .count();
         assert!(red > 50, "expected red-tinted body pixels, got {red}");
-        // Cyan ears and fins are not neutral, so they keep their colour.
-        let i = cyan_index.unwrap();
-        let p = &after[i * 4..i * 4 + 4];
-        assert!(p[1] > 120 && p[2] > 120, "cyan must survive tinting");
+        // Cyan ears/fins are not body-white, so they keep their colour.
+        let cyan = after
+            .chunks_exact(4)
+            .filter(|p| p[3] > 200 && p[0] < 120 && p[1] > 150 && p[2] > 150)
+            .count();
+        assert!(cyan > 100, "cyan parts must survive tinting, got {cyan}");
+    }
+
+    #[test]
+    fn tint_skips_sweat_drops() {
+        let _guard = THORVG_LOCK.lock().unwrap();
+        let root = assets_root();
+        if !root.join("catalog.json").is_file() {
+            return;
+        }
+        let catalog = Catalog::load(&root).unwrap();
+        let spec = catalog.expression_spec(1, "surprise").unwrap();
+        let mut renderer = Renderer::new().unwrap();
+        renderer.load(&spec, 3.0).unwrap();
+        renderer.render_frame(20.0).unwrap();
+        let before = renderer.rgba8().to_vec();
+        let width = renderer.size().0 as usize;
+        // A sweat droplet sits near canvas (11.3, 46.7); sample its tiny area.
+        let white_near_sweat = |buf: &[u8]| {
+            let mut n = 0;
+            for y in 133..147 {
+                for x in 27..41 {
+                    let i = (y * width + x) * 4;
+                    if buf[i] > 220 && buf[i + 1] > 220 && buf[i + 2] > 220 {
+                        n += 1;
+                    }
+                }
+            }
+            n
+        };
+        let sweat_before = white_near_sweat(&before);
+        assert!(sweat_before > 4, "sweat droplet should be white ({sweat_before})");
+
+        renderer.set_tint(Some([255, 0, 0]));
+        renderer.render_frame(20.0).unwrap();
+        let after = renderer.rgba8().to_vec();
+        assert_eq!(
+            white_near_sweat(&after),
+            sweat_before,
+            "sweat drops must stay white"
+        );
+        let red = after
+            .chunks_exact(4)
+            .filter(|p| p[3] > 240 && p[0] > 200 && p[1] < 40 && p[2] < 40)
+            .count();
+        assert!(red > 100, "the body shell should be tinted, got {red}");
     }
 
     #[test]
