@@ -8,10 +8,14 @@ PNG 遮罩是固定分辨率的，放大到高 DPI 会糊，而且角色一移�
 
 - `assets/tint_parts.json`：标注结果，格式
   ```json
-  { "format_version": 1, "animations": { "form3/walk/down": [0, 1, 7] } }
+  { "format_version": 1, "animations": { "form3/walk/down": [
+      { "layer": 1, "paths": [0] },
+      { "layer": 7, "paths": [2, 3] } ] } }
   ```
-  键是动画 id（`form{形态}/walk|action|expr/{slug}`），值是该动画的 Lottie 图层下标数组。
-- 没有条目的动画回退到内置启发式（本体图层 + 像素补染）；有条目则**只**染这些图层，
+  键是动画 id（`form{形态}/walk|action|expr/{slug}`）；每个部件是「图层下标 + 该图层内的
+  路径序号组」。同一个 fill 的多条路径会按包含关系拆成“外轮廓 + 洞”和独立小岛（高光、
+  眼睛等），所以壳体和高光可以分开选。
+- 没有条目的动画回退到内置启发式（本体图层 + 像素补染）；有条目则**只**染这些部件，
   所以标注时要把它自己的白球、耳根、铠甲等全部选上。
 
 ## 工具

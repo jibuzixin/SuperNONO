@@ -1271,28 +1271,6 @@ fn walk_into(specs: &mut Vec<nono_core::AnimationSpec>, catalog: &Catalog, form:
     }
 }
 
-fn paint_layer(layer: &mut serde_json::Value, r: f64, g: f64, b: f64) {
-    match layer {
-        serde_json::Value::Object(map) => {
-            if matches!(map.get("ty").and_then(|v| v.as_str()), Some("fl") | Some("st")) {
-                map.insert(
-                    "c".to_string(),
-                    serde_json::json!({ "a": 0, "k": [r, g, b, 1.0] }),
-                );
-            }
-            for v in map.values_mut() {
-                paint_layer(v, r, g, b);
-            }
-        }
-        serde_json::Value::Array(arr) => {
-            for v in arr.iter_mut() {
-                paint_layer(v, r, g, b);
-            }
-        }
-        _ => {}
-    }
-}
-
 fn dump_layers(assets: PathBuf, out: PathBuf, form: Option<u8>, scale: f32, count: usize) -> Result<()> {
     let catalog = Catalog::load(&assets)?;
     let mut renderer = Renderer::new()?;
@@ -1310,20 +1288,7 @@ fn dump_layers(assets: PathBuf, out: PathBuf, form: Option<u8>, scale: f32, coun
             let flat = spec.id.replace('/', "_");
             let bytes = std::fs::read(&spec.file)?;
             let mut root: serde_json::Value = serde_json::from_slice(&bytes)?;
-            let mut meta = Vec::new();
-            if let Some(layers) = root.get_mut("layers").and_then(|v| v.as_array_mut()) {
-                for (i, layer) in layers.iter_mut().enumerate() {
-                    let r = (i & 0xFF) as f64 / 255.0;
-                    let g = ((i >> 8) & 0xFF) as f64 / 255.0;
-                    let b = 1.0;
-                    paint_layer(layer, r, g, b);
-                    meta.push(serde_json::json!({
-                        "i": i,
-                        "nm": layer.get("nm").cloned().unwrap_or(serde_json::Value::Null),
-                        "color": [(i & 0xFF), ((i >> 8) & 0xFF), 255],
-                    }));
-                }
-            }
+            let units = nono_render::parts::color_map(&mut root);
             let temp = layers_dir.join(format!("_{flat}.tmp.json"));
             std::fs::write(&temp, serde_json::to_vec(&root)?)?;
             let mut temp_spec = spec.clone();
@@ -1336,12 +1301,23 @@ fn dump_layers(assets: PathBuf, out: PathBuf, form: Option<u8>, scale: f32, coun
                 let frame = ((j * total) / want) as f32;
                 renderer.render_png(&temp_spec, scale, frame, &dir.join(format!("{j:02}.png")))?;
             }
+            let meta: Vec<serde_json::Value> = units
+                .iter()
+                .map(|u| {
+                    serde_json::json!({
+                        "layer": u.layer,
+                        "paths": u.paths,
+                        "color": u.color,
+                        "nm": u.name,
+                    })
+                })
+                .collect();
             std::fs::write(
                 layers_dir.join(format!("{flat}.json")),
-                serde_json::to_vec_pretty(&serde_json::json!({ "layers": meta }))?,
+                serde_json::to_vec_pretty(&serde_json::json!({ "units": meta }))?,
             )?;
             let _ = std::fs::remove_file(&temp);
-            println!("layer maps {} ({} frames)", spec.id, want);
+            println!("parts {} ({} units, {} frames)", spec.id, units.len(), want);
         }
     }
     Ok(())

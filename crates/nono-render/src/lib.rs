@@ -8,6 +8,8 @@
 //! targets, lays out bytes as `R, G, B, A` — exactly what CoreGraphics wants for
 //! a `kCGImageAlphaPremultipliedLast` image.
 
+pub mod parts;
+
 use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 
@@ -74,8 +76,8 @@ pub struct Renderer {
     walk_animation: bool,
     tint: Option<[u8; 3]>,
     mask: Option<image::RgbaImage>,
-    manual_layers: Option<Vec<usize>>,
-    parts_cache: Option<(PathBuf, HashMap<String, Vec<usize>>)>,
+    manual_parts: Option<Vec<(usize, Vec<usize>)>>,
+    parts_cache: Option<(PathBuf, HashMap<String, Vec<(usize, Vec<usize>)>>)>,
 }
 
 impl std::fmt::Debug for Renderer {
@@ -111,7 +113,7 @@ impl Renderer {
             walk_animation: false,
             tint: None,
             mask: None,
-            manual_layers: None,
+            manual_parts: None,
             parts_cache: None,
         })
     }
@@ -121,7 +123,7 @@ impl Renderer {
     /// `assets/tint_parts.json` maps animation ids to Lottie layer indices
     /// (from `tools/tint_annotator`).  Only those layers are recoloured, which
     /// is exact at every scale because it edits the vector fill colours.
-    fn manual_layers_for(&mut self, spec: &AnimationSpec) -> Option<Vec<usize>> {
+    fn manual_parts_for(&mut self, spec: &AnimationSpec) -> Option<Vec<(usize, Vec<usize>)>> {
         let assets = spec.file.parent()?.parent()?.to_path_buf();
         if self.parts_cache.as_ref().map(|(root, _)| root != &assets).unwrap_or(true) {
             let map = std::fs::read(assets.join("tint_parts.json"))
@@ -130,12 +132,23 @@ impl Renderer {
                 .and_then(|root| {
                     let entries = root.get("animations")?.as_object()?;
                     let mut map = HashMap::new();
-                    for (id, layers) in entries {
-                        let list = layers
-                            .as_array()?
-                            .iter()
-                            .filter_map(|v| v.as_u64().map(|n| n as usize))
-                            .collect::<Vec<_>>();
+                    for (id, parts) in entries {
+                        let mut list = Vec::new();
+                        for v in parts.as_array()? {
+                            if let Some(layer) = v.as_u64() {
+                                // legacy: whole layer
+                                list.push((layer as usize, Vec::new()));
+                            } else if let Some(obj) = v.as_object() {
+                                let layer = obj.get("layer")?.as_u64()? as usize;
+                                let paths = obj
+                                    .get("paths")?
+                                    .as_array()?
+                                    .iter()
+                                    .filter_map(|p| p.as_u64().map(|n| n as usize))
+                                    .collect::<Vec<_>>();
+                                list.push((layer, paths));
+                            }
+                        }
                         map.insert(id.clone(), list);
                     }
                     Some(map)
@@ -167,7 +180,7 @@ impl Renderer {
         let Some(tint) = self.tint else { return };
         // Annotated layers are already recoloured in the Lottie JSON; do not
         // touch any other pixels.
-        if self.manual_layers.is_some() {
+        if self.manual_parts.is_some() {
             return;
         }
         let w = self.width as usize;
@@ -403,12 +416,12 @@ impl Renderer {
             .filter(|p| p.is_file())
             .and_then(|p| image::open(&p).ok())
             .map(|img| img.to_rgba8());
-        self.manual_layers = self.manual_layers_for(spec);
+        self.manual_parts = self.manual_parts_for(spec);
         if let Some(tint) = self.tint {
             // Recolour the annotated layers (tint_parts.json) when present;
             // otherwise fall back to the body-layer palette heuristic.
             let bytes = std::fs::read(&spec.file)?;
-            let tinted = tint_lottie_json(&bytes, tint, self.manual_layers.as_deref())?;
+            let tinted = tint_lottie_json(&bytes, tint, self.manual_parts.as_deref())?;
             anim.load_data(&tinted)?;
         } else {
             anim.load_file(
@@ -664,20 +677,35 @@ fn tint_layer(layer: &mut serde_json::Value, tint: [u8; 3]) {
 fn tint_lottie_json(
     bytes: &[u8],
     tint: [u8; 3],
-    manual: Option<&[usize]>,
+    manual: Option<&[(usize, Vec<usize>)]>,
 ) -> Result<Vec<u8>, serde_json::Error> {
     let mut root: serde_json::Value = serde_json::from_slice(bytes)?;
-    let Some(layers) = root.get_mut("layers").and_then(|v| v.as_array_mut()) else {
-        return Ok(bytes.to_vec());
-    };
-    if let Some(manual) = manual {
+    if let Some(parts) = manual {
+        // Parts with an empty path list mean "the whole layer" (legacy).
+        let mut with_paths = Vec::new();
+        let Some(layers) = root.get_mut("layers").and_then(|v| v.as_array_mut()) else {
+            return Ok(bytes.to_vec());
+        };
         for (i, layer) in layers.iter_mut().enumerate() {
-            if manual.contains(&i) {
-                tint_layer(layer, tint);
+            for (l, paths) in parts {
+                if *l == i && paths.is_empty() {
+                    tint_layer(layer, tint);
+                }
             }
+        }
+        for (l, paths) in parts {
+            if !paths.is_empty() {
+                with_paths.push((*l, paths.clone()));
+            }
+        }
+        if !with_paths.is_empty() {
+            parts::apply_parts(&mut root, &with_paths, tint);
         }
         return serde_json::to_vec(&root);
     }
+    let Some(layers) = root.get_mut("layers").and_then(|v| v.as_array_mut()) else {
+        return Ok(bytes.to_vec());
+    };
     let body: Vec<bool> = layers.iter().map(is_body_layer).collect();
     let any_body = body.iter().any(|b| *b);
     for (i, layer) in layers.iter_mut().enumerate() {

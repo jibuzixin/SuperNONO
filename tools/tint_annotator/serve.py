@@ -68,7 +68,8 @@ class Handler(BaseHTTPRequestHandler):
                 return
             data = json.loads(file.read_text())
             anim = self.anim_from_flat(Path(path).name[:-5])
-            body = json.dumps({"id": anim, "layers": data.get("animations", {}).get(anim, [])}).encode()
+            entry = data.get("animations", {}).get(anim, [])
+            body = json.dumps({"id": anim, "parts": entry}).encode()
             self._send(200, body, "application/json")
             return
         else:
@@ -89,12 +90,17 @@ class Handler(BaseHTTPRequestHandler):
                 self._send(400, b"bad json", "text/plain")
                 return
             anim = payload.get("id") or self.anim_from_flat(Path(path).name[:-5])
-            layers = [int(v) for v in payload.get("layers", [])]
+            parts = []
+            for item in payload.get("parts", payload.get("layers", [])):
+                if isinstance(item, dict):
+                    parts.append({"layer": int(item.get("layer", 0)), "paths": [int(v) for v in item.get("paths", [])]})
+                else:
+                    parts.append(int(item))
             file = self.parts_file()
             data = {"format_version": 1, "animations": {}}
             if file.is_file():
                 data = json.loads(file.read_text())
-            data.setdefault("animations", {})[anim] = layers
+            data.setdefault("animations", {})[anim] = parts
             file.write_text(json.dumps(data, ensure_ascii=False, indent=2) + "\n")
             self._send(200, b"ok", "text/plain")
             return

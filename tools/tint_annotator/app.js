@@ -3,7 +3,7 @@ const state = {
   current: null,
   frames: [],
   colorMaps: [],
-  layers: [],
+  units: [],
   selected: new Set(),
   frameIndex: 0,
   overlay: document.createElement('canvas'),
@@ -22,6 +22,8 @@ const frameLabel = document.getElementById('frameLabel');
 const KIND_LABEL = { walk: '走路', action: '动作', expr: '表情', expression: '表情' };
 const flatId = (id) => id.replaceAll('/', '_');
 const colorKey = (c) => (c[0] << 16) | (c[1] << 8) | c[2];
+const unitKey = (u) => `${u.layer}|${u.paths.join(',')}`;
+const unitByColor = new Map();
 
 async function boot() {
   const res = await fetch('/manifest.json');
@@ -72,8 +74,10 @@ async function select(anim) {
     fetch(`/layers/${flat}.json`).then(r => r.ok ? r.json() : null).catch(() => null),
   ]);
   state.frames = frames;
-  state.layers = meta ? meta.layers : [];
+  state.units = meta ? (meta.units || []) : [];
   state.colorMaps = [];
+  unitByColor.clear();
+  for (const u of state.units) unitByColor.set(colorKey(u.color), u);
   if (meta) {
     state.colorMaps = await Promise.all(anim.frames.map((_, i) => loadColorMap(`/layers/${flat}/${String(i).padStart(2, '0')}.png`)));
   }
@@ -85,10 +89,14 @@ async function select(anim) {
     const r = await fetch(`/parts/${flat}.json`, { cache: 'no-store' });
     if (r.ok) {
       const existing = await r.json();
-      for (const v of (existing.layers || [])) state.selected.add(Number(v));
+      for (const p of (existing.parts || [])) {
+        if (typeof p === 'number') continue;
+        const u = state.units.find(x => x.layer === p.layer && x.paths.join(',') === (p.paths || []).join(','));
+        if (u) state.selected.add(unitKey(u));
+      }
     }
   } catch (_) {}
-  statusEl.textContent = state.layers.length ? `${state.layers.length} 层，${state.frames.length} 帧` : '没有图层映射';
+  statusEl.textContent = state.units.length ? `${state.units.length} 个部件，${state.frames.length} 帧` : '没有部件映射';
   draw();
   renderSelected();
 }
@@ -125,7 +133,7 @@ function draw() {
     ov.width = width; ov.height = height;
     const octx = ov.getContext('2d');
     const out = octx.createImageData(width, height);
-    const selectedColors = new Set(state.layers.filter(l => state.selected.has(l.i)).map(l => colorKey(l.color)));
+    const selectedColors = new Set(state.units.filter(u => state.selected.has(unitKey(u))).map(u => colorKey(u.color)));
     for (let p = 0; p < data.length; p += 4) {
       if (data[p + 3] < 128) continue;
       const key = (data[p] << 16) | (data[p + 1] << 8) | data[p + 2];
@@ -150,34 +158,35 @@ function pick(clientX, clientY) {
   const d = cmap.data;
   if (d[i + 3] < 128) return;
   const key = (d[i] << 16) | (d[i + 1] << 8) | d[i + 2];
-  let layer = state.layers.find(l => colorKey(l.color) === key);
-  if (!layer) {
+  let unit = unitByColor.get(key);
+  if (!unit) {
     let best = null, bestDist = 60 * 60;
-    for (const l of state.layers) {
-      const dr = l.color[0] - d[i], dg = l.color[1] - d[i + 1], db = l.color[2] - d[i + 2];
+    for (const u of state.units) {
+      const dr = u.color[0] - d[i], dg = u.color[1] - d[i + 1], db = u.color[2] - d[i + 2];
       const dist = dr * dr + dg * dg + db * db;
-      if (dist < bestDist) { bestDist = dist; best = l; }
+      if (dist < bestDist) { bestDist = dist; best = u; }
     }
-    layer = best;
+    unit = best;
   }
-  if (!layer) return;
-  if (state.selected.has(layer.i)) state.selected.delete(layer.i);
-  else state.selected.add(layer.i);
+  if (!unit) return;
+  const k = unitKey(unit);
+  if (state.selected.has(k)) state.selected.delete(k);
+  else state.selected.add(k);
   draw();
   renderSelected();
 }
 
 function renderSelected() {
   selectedEl.innerHTML = '';
-  const list = state.layers.filter(l => state.selected.has(l.i));
+  const list = state.units.filter(u => state.selected.has(unitKey(u)));
   countEl.textContent = String(list.length);
-  for (const l of list) {
+  for (const u of list) {
     const el = document.createElement('span');
     el.className = 'chip';
-    el.textContent = `${l.nm} #${l.i}`;
+    el.textContent = `${u.nm || '部件'} L${u.layer} [${u.paths.join(',')}]`;
     const x = document.createElement('button');
     x.textContent = '×';
-    x.onclick = () => { state.selected.delete(l.i); draw(); renderSelected(); };
+    x.onclick = () => { state.selected.delete(unitKey(u)); draw(); renderSelected(); };
     el.appendChild(x);
     selectedEl.appendChild(el);
   }
@@ -208,12 +217,15 @@ document.getElementById('clear').onclick = () => {
 document.getElementById('save').onclick = async () => {
   if (!state.current) return;
   const flat = flatId(state.current.id);
+  const parts = state.units
+    .filter(u => state.selected.has(unitKey(u)))
+    .map(u => ({ layer: u.layer, paths: u.paths }));
   const res = await fetch(`/parts/${flat}.json`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ id: state.current.id, layers: [...state.selected].sort((a, b) => a - b) }),
+    body: JSON.stringify({ id: state.current.id, parts }),
   });
-  statusEl.textContent = res.ok ? `已保存 ${state.selected.size} 层` : '保存失败';
+  statusEl.textContent = res.ok ? `已保存 ${parts.length} 个部件` : '保存失败';
 };
 
 boot();
