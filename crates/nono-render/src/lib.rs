@@ -8,7 +8,8 @@
 //! targets, lays out bytes as `R, G, B, A` — exactly what CoreGraphics wants for
 //! a `kCGImageAlphaPremultipliedLast` image.
 
-use std::path::Path;
+use std::collections::HashMap;
+use std::path::{Path, PathBuf};
 
 use nono_core::AnimationSpec;
 use thorvg::{ColorSpace, EngineOption, LottieAnimation, Paint, Picture, SwCanvas, Thorvg};
@@ -72,6 +73,9 @@ pub struct Renderer {
     frame_count: u32,
     walk_animation: bool,
     tint: Option<[u8; 3]>,
+    mask: Option<image::RgbaImage>,
+    manual_layers: Option<Vec<usize>>,
+    parts_cache: Option<(PathBuf, HashMap<String, Vec<usize>>)>,
 }
 
 impl std::fmt::Debug for Renderer {
@@ -106,7 +110,42 @@ impl Renderer {
             frame_count: 1,
             walk_animation: false,
             tint: None,
+            mask: None,
+            manual_layers: None,
+            parts_cache: None,
         })
+    }
+
+    /// Hand-annotated tintable layers for this animation, if any.
+    ///
+    /// `assets/tint_parts.json` maps animation ids to Lottie layer indices
+    /// (from `tools/tint_annotator`).  Only those layers are recoloured, which
+    /// is exact at every scale because it edits the vector fill colours.
+    fn manual_layers_for(&mut self, spec: &AnimationSpec) -> Option<Vec<usize>> {
+        let assets = spec.file.parent()?.parent()?.to_path_buf();
+        if self.parts_cache.as_ref().map(|(root, _)| root != &assets).unwrap_or(true) {
+            let map = std::fs::read(assets.join("tint_parts.json"))
+                .ok()
+                .and_then(|bytes| serde_json::from_slice::<serde_json::Value>(&bytes).ok())
+                .and_then(|root| {
+                    let entries = root.get("animations")?.as_object()?;
+                    let mut map = HashMap::new();
+                    for (id, layers) in entries {
+                        let list = layers
+                            .as_array()?
+                            .iter()
+                            .filter_map(|v| v.as_u64().map(|n| n as usize))
+                            .collect::<Vec<_>>();
+                        map.insert(id.clone(), list);
+                    }
+                    Some(map)
+                })
+                .unwrap_or_default();
+            self.parts_cache = Some((assets, map));
+        }
+        self.parts_cache
+            .as_ref()
+            .and_then(|(_, map)| map.get(&spec.id).cloned())
     }
 
     /// Recolours the character's white body parts.  The assets are untouched;
@@ -126,6 +165,11 @@ impl Renderer {
     /// glows/sweat/eyes inside the visor are ignored.
     fn apply_tint(&mut self) {
         let Some(tint) = self.tint else { return };
+        // Annotated layers are already recoloured in the Lottie JSON; do not
+        // touch any other pixels.
+        if self.manual_layers.is_some() {
+            return;
+        }
         let w = self.width as usize;
         let h = self.height as usize;
         if w == 0 || h == 0 {
@@ -137,6 +181,37 @@ impl Renderer {
                 self.buffer.len() * std::mem::size_of::<u32>(),
             )
         };
+        if let Some(mask) = self.mask.clone() {
+            let (mw, mh) = mask.dimensions();
+            for y in 0..h {
+                let row = y * w * 4;
+                for x in 0..w {
+                    let i = row + x * 4;
+                    let a = bytes[i + 3];
+                    if a <= 8 {
+                        continue;
+                    }
+                    let r = bytes[i] as u32;
+                    let g = bytes[i + 1] as u32;
+                    let b = bytes[i + 2] as u32;
+                    let mx = r.max(g).max(b);
+                    let mn = r.min(g).min(b);
+                    if mn * 100 < a as u32 * 99 || mx - mn > 10 {
+                        continue;
+                    }
+                    let sx = x * mw as usize / w;
+                    let sy = y * mh as usize / h;
+                    if mask.get_pixel(sx as u32, sy as u32)[3] <= 128 {
+                        continue;
+                    }
+                    let k = mx;
+                    bytes[i] = (tint[0] as u32 * k / 255) as u8;
+                    bytes[i + 1] = (tint[1] as u32 * k / 255) as u8;
+                    bytes[i + 2] = (tint[2] as u32 * k / 255) as u8;
+                }
+            }
+            return;
+        }
         const STRIDE: usize = 4;
         let dw = w.div_ceil(STRIDE);
         let dh = h.div_ceil(STRIDE);
@@ -317,14 +392,23 @@ impl Renderer {
         }
 
         let mut anim = self.engine.lottie_animation()?;
+        // Per-animation hand-painted mask (from tools/tint_annotator): only
+        // near-white pixels under the mask are tinted, everything else keeps
+        // its original colour.  Absent mask => heuristic fallback below.
+        self.mask = spec
+            .file
+            .parent()
+            .and_then(|p| p.parent())
+            .map(|assets| assets.join("tint_masks").join(format!("{}.png", spec.id.replace('/', "_"))))
+            .filter(|p| p.is_file())
+            .and_then(|p| image::open(&p).ok())
+            .map(|img| img.to_rgba8());
+        self.manual_layers = self.manual_layers_for(spec);
         if let Some(tint) = self.tint {
-            // Recolour the body layers in a copy of the Lottie JSON.  The white
-            // ball and the white ear roots live in the layers that also carry
-            // the body's grey/beige shading; hands/fins, ear glows, sweat,
-            // thought bubbles and props are separate white-only/coloured layers
-            // and are therefore left untouched.
+            // Recolour the annotated layers (tint_parts.json) when present;
+            // otherwise fall back to the body-layer palette heuristic.
             let bytes = std::fs::read(&spec.file)?;
-            let tinted = tint_lottie_json(&bytes, tint)?;
+            let tinted = tint_lottie_json(&bytes, tint, self.manual_layers.as_deref())?;
             anim.load_data(&tinted)?;
         } else {
             anim.load_file(
@@ -577,11 +661,23 @@ fn tint_layer(layer: &mut serde_json::Value, tint: [u8; 3]) {
 /// saturated layers (cyan/black/glass) are left alone.  Animations without such
 /// a layer (some walk directions, form-2 charge) have no effects, so every layer
 /// is eligible there.
-fn tint_lottie_json(bytes: &[u8], tint: [u8; 3]) -> Result<Vec<u8>, serde_json::Error> {
+fn tint_lottie_json(
+    bytes: &[u8],
+    tint: [u8; 3],
+    manual: Option<&[usize]>,
+) -> Result<Vec<u8>, serde_json::Error> {
     let mut root: serde_json::Value = serde_json::from_slice(bytes)?;
     let Some(layers) = root.get_mut("layers").and_then(|v| v.as_array_mut()) else {
         return Ok(bytes.to_vec());
     };
+    if let Some(manual) = manual {
+        for (i, layer) in layers.iter_mut().enumerate() {
+            if manual.contains(&i) {
+                tint_layer(layer, tint);
+            }
+        }
+        return serde_json::to_vec(&root);
+    }
     let body: Vec<bool> = layers.iter().map(is_body_layer).collect();
     let any_body = body.iter().any(|b| *b);
     for (i, layer) in layers.iter_mut().enumerate() {
@@ -768,7 +864,7 @@ mod tests {
         }
         let bytes = std::fs::read(&surprise_path).unwrap();
         let before: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-        let tinted = tint_lottie_json(&bytes, [255, 0, 0]).unwrap();
+        let tinted = tint_lottie_json(&bytes, [255, 0, 0], None).unwrap();
         let after: serde_json::Value = serde_json::from_slice(&tinted).unwrap();
         // Layer 0 is a white-only sweat drop; layer 45 is the white/grey shell.
         assert_eq!(before["layers"][0], after["layers"][0], "sweat must stay white");
@@ -778,7 +874,7 @@ mod tests {
         let cube_path = root.join("nono-form1-actions/nono1_action_cube.json");
         if cube_path.is_file() {
             let bytes = std::fs::read(&cube_path).unwrap();
-            let tinted = tint_lottie_json(&bytes, [255, 0, 0]).unwrap();
+            let tinted = tint_lottie_json(&bytes, [255, 0, 0], None).unwrap();
             let before: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
             let after: serde_json::Value = serde_json::from_slice(&tinted).unwrap();
             assert_eq!(before["layers"][0], after["layers"][0], "prop layers must stay untouched");
