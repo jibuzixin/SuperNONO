@@ -6,6 +6,10 @@ const state = {
   units: [],
   selected: new Set(),
   frameIndex: 0,
+  mode: 'parts',
+  mask: document.createElement('canvas'),
+  mctx: null,
+  brush: 10,
   overlay: document.createElement('canvas'),
 };
 
@@ -16,8 +20,11 @@ const titleEl = document.getElementById('title');
 const statusEl = document.getElementById('status');
 const selectedEl = document.getElementById('selected');
 const countEl = document.getElementById('count');
+const selectedWrap = document.getElementById('selectedWrap');
 const frameEl = document.getElementById('frame');
 const frameLabel = document.getElementById('frameLabel');
+const brushWrap = document.getElementById('brushWrap');
+const saveMaskBtn = document.getElementById('saveMask');
 
 const KIND_LABEL = { walk: '走路', action: '动作', expr: '表情', expression: '表情' };
 const flatId = (id) => id.replaceAll('/', '_');
@@ -68,6 +75,11 @@ async function select(anim) {
   view.style.width = `${w * zoom}px`;
   view.style.height = `${h * zoom}px`;
 
+  state.mask.width = w; state.mask.height = h;
+  state.mctx = state.mask.getContext('2d');
+  state.mctx.clearRect(0, 0, w, h);
+  state.overlay.width = w; state.overlay.height = h;
+
   const flat = flatId(anim.id);
   const [frames, meta] = await Promise.all([
     Promise.all(anim.frames.map(rel => loadImage(`/${rel}`))),
@@ -85,6 +97,15 @@ async function select(anim) {
   frameEl.value = 0;
   frameLabel.textContent = `0 / ${Math.max(0, anim.frames.length - 1)}`;
 
+  // existing mask
+  try {
+    const r = await fetch(`/masks/${flat}.png`, { cache: 'no-store' });
+    if (r.ok) {
+      const bmp = await createImageBitmap(await r.blob());
+      state.mctx.drawImage(bmp, 0, 0, w, h);
+    }
+  } catch (_) {}
+  // existing parts
   try {
     const r = await fetch(`/parts/${flat}.json`, { cache: 'no-store' });
     if (r.ok) {
@@ -126,6 +147,21 @@ function draw() {
   vctx.clearRect(0, 0, view.width, view.height);
   const frame = state.frames[state.frameIndex];
   if (frame) vctx.drawImage(frame, 0, 0);
+  if (state.mode === 'brush') {
+    // green overlay of the painted mask
+    const ov = state.overlay;
+    const octx = ov.getContext('2d');
+    octx.clearRect(0, 0, ov.width, ov.height);
+    octx.drawImage(state.mask, 0, 0);
+    octx.globalCompositeOperation = 'source-in';
+    octx.fillStyle = 'rgba(60, 220, 120, 1)';
+    octx.fillRect(0, 0, ov.width, ov.height);
+    octx.globalCompositeOperation = 'source-over';
+    vctx.globalAlpha = 0.45;
+    vctx.drawImage(ov, 0, 0);
+    vctx.globalAlpha = 1;
+    return;
+  }
   const cmap = activeMap();
   if (cmap && state.selected.size) {
     const { width, height, data } = cmap;
@@ -145,6 +181,19 @@ function draw() {
     vctx.drawImage(ov, 0, 0);
     vctx.globalAlpha = 1;
   }
+}
+
+function paintAt(clientX, clientY) {
+  const r = view.getBoundingClientRect();
+  const x = (clientX - r.left) * view.width / r.width;
+  const y = (clientY - r.top) * view.height / r.height;
+  const ctx = state.mctx;
+  ctx.globalCompositeOperation = state.erasing ? 'destination-out' : 'source-over';
+  ctx.fillStyle = '#ffffff';
+  ctx.beginPath();
+  ctx.arc(x, y, state.brush, 0, Math.PI * 2);
+  ctx.fill();
+  draw();
 }
 
 function pick(clientX, clientY) {
@@ -176,24 +225,32 @@ function pick(clientX, clientY) {
   renderSelected();
 }
 
-function renderSelected() {
-  selectedEl.innerHTML = '';
-  const list = state.units.filter(u => state.selected.has(unitKey(u)));
-  countEl.textContent = String(list.length);
-  for (const u of list) {
-    const el = document.createElement('span');
-    el.className = 'chip';
-    el.textContent = `${u.nm || '部件'} L${u.layer} [${u.paths.join(',')}]`;
-    const x = document.createElement('button');
-    x.textContent = '×';
-    x.onclick = () => { state.selected.delete(unitKey(u)); draw(); renderSelected(); };
-    el.appendChild(x);
-    selectedEl.appendChild(el);
-  }
+view.addEventListener('pointerdown', (e) => {
+  if (!state.current) return;
+  e.preventDefault();
+  if (state.mode === 'brush') { state.painting = true; view.setPointerCapture(e.pointerId); paintAt(e.clientX, e.clientY); }
+  else pick(e.clientX, e.clientY);
+});
+view.addEventListener('pointermove', (e) => { if (state.painting && state.mode === 'brush') paintAt(e.clientX, e.clientY); });
+view.addEventListener('pointerup', () => { state.painting = false; });
+view.addEventListener('pointercancel', () => { state.painting = false; });
+
+function setMode(mode) {
+  state.mode = mode;
+  document.getElementById('modeParts').classList.toggle('active', mode === 'parts');
+  document.getElementById('modeBrush').classList.toggle('active', mode === 'brush');
+  brushWrap.hidden = mode !== 'brush';
+  saveMaskBtn.hidden = mode !== 'brush';
+  selectedWrap.hidden = mode !== 'parts';
+  draw();
 }
 
-view.addEventListener('pointerdown', (e) => { e.preventDefault(); pick(e.clientX, e.clientY); });
-
+document.getElementById('modeParts').onclick = () => setMode('parts');
+document.getElementById('modeBrush').onclick = () => setMode('brush');
+document.getElementById('brush').oninput = (e) => {
+  state.brush = Number(e.target.value);
+  document.getElementById('brushVal').textContent = state.brush;
+};
 frameEl.oninput = (e) => {
   state.frameIndex = Number(e.target.value);
   frameLabel.textContent = `${state.frameIndex} / ${state.frames.length - 1}`;
@@ -212,7 +269,12 @@ document.getElementById('next').onclick = () => {
   draw();
 };
 document.getElementById('clear').onclick = () => {
-  state.selected.clear(); draw(); renderSelected();
+  if (state.mode === 'brush') {
+    state.mctx.clearRect(0, 0, state.mask.width, state.mask.height);
+    draw();
+  } else {
+    state.selected.clear(); draw(); renderSelected();
+  }
 };
 document.getElementById('save').onclick = async () => {
   if (!state.current) return;
@@ -227,5 +289,28 @@ document.getElementById('save').onclick = async () => {
   });
   statusEl.textContent = res.ok ? `已保存 ${parts.length} 个部件` : '保存失败';
 };
+saveMaskBtn.onclick = async () => {
+  if (!state.current) return;
+  const flat = flatId(state.current.id);
+  const blob = await new Promise((resolve) => state.mask.toBlob(resolve, 'image/png'));
+  const res = await fetch(`/mask/${flat}.png`, { method: 'POST', body: blob });
+  statusEl.textContent = res.ok ? '已保存遮罩（优先生效）' : '保存失败';
+};
+
+function renderSelected() {
+  selectedEl.innerHTML = '';
+  const list = state.units.filter(u => state.selected.has(unitKey(u)));
+  countEl.textContent = String(list.length);
+  for (const u of list) {
+    const el = document.createElement('span');
+    el.className = 'chip';
+    el.textContent = `${u.nm || '部件'} L${u.layer} [${u.paths.join(',')}]`;
+    const x = document.createElement('button');
+    x.textContent = '×';
+    x.onclick = () => { state.selected.delete(unitKey(u)); draw(); renderSelected(); };
+    el.appendChild(x);
+    selectedEl.appendChild(el);
+  }
+}
 
 boot();

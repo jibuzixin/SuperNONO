@@ -178,9 +178,9 @@ impl Renderer {
     /// glows/sweat/eyes inside the visor are ignored.
     fn apply_tint(&mut self) {
         let Some(tint) = self.tint else { return };
-        // Annotated layers are already recoloured in the Lottie JSON; do not
-        // touch any other pixels.
-        if self.manual_parts.is_some() {
+        // A hand-painted mask is applied to the pixels below; annotated parts
+        // are already recoloured in the Lottie JSON, so nothing else to do.
+        if self.mask.is_none() && self.manual_parts.is_some() {
             return;
         }
         let w = self.width as usize;
@@ -415,14 +415,25 @@ impl Renderer {
             .map(|assets| assets.join("tint_masks").join(format!("{}.png", spec.id.replace('/', "_"))))
             .filter(|p| p.is_file())
             .and_then(|p| image::open(&p).ok())
-            .map(|img| img.to_rgba8());
+            .map(|img| img.to_rgba8())
+            .filter(|img| img.pixels().any(|p| p[3] > 128));
         self.manual_parts = self.manual_parts_for(spec);
         if let Some(tint) = self.tint {
-            // Recolour the annotated layers (tint_parts.json) when present;
-            // otherwise fall back to the body-layer palette heuristic.
-            let bytes = std::fs::read(&spec.file)?;
-            let tinted = tint_lottie_json(&bytes, tint, self.manual_parts.as_deref())?;
-            anim.load_data(&tinted)?;
+            if self.mask.is_none() {
+                // Recolour the annotated parts (tint_parts.json) when present;
+                // otherwise fall back to the body-layer palette heuristic.
+                let bytes = std::fs::read(&spec.file)?;
+                let tinted = tint_lottie_json(&bytes, tint, self.manual_parts.as_deref())?;
+                anim.load_data(&tinted)?;
+            } else {
+                // A hand-painted mask takes precedence: keep the original
+                // colours and tint only the pixels under the mask (apply_tint).
+                anim.load_file(
+                    spec.file
+                        .to_str()
+                        .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "non-utf8 path"))?,
+                )?;
+            }
         } else {
             anim.load_file(
                 spec.file
