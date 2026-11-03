@@ -8,6 +8,7 @@
 
 ![NONO 召唤](docs/screenshots/form1-summon.png)
 ![形态 3 头晕](docs/screenshots/form3-dizzy.png)
+![樱花粉调色](docs/screenshots/tint-pink.png)
 
 ## 功能（M1）
 
