@@ -162,7 +162,15 @@ impl Renderer {
                 .to_str()
                 .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "non-utf8 path"))?,
         )?;
-        anim.set_size(width as f32, height as f32)?;
+        // Per-animation placement correction (see assets/tuning.json).
+        // Scaling happens around the pet anchor so the feet stay put.
+        let k = spec.placement.scale.max(0.05);
+        anim.set_size(width as f32 * k, height as f32 * k)?;
+        let origin_x =
+            spec.pet_anchor.0 * scale * (1.0 - k) + spec.placement.offset.0 * scale;
+        let origin_y =
+            spec.pet_anchor.1 * scale * (1.0 - k) + spec.placement.offset.1 * scale;
+        anim.picture_mut().translate(origin_x, origin_y)?;
         // ThorVG reports `InsufficientCondition` when the requested frame equals
         // the current one, so frame 0 (the loader default) is not set here.
 

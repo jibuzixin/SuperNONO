@@ -61,6 +61,15 @@ impl Rect {
         p.x >= self.x && p.x <= self.right() && p.y >= self.y && p.y <= self.bottom()
     }
 
+    /// Intersection of two rectangles, clamped to at least 1x1.
+    pub fn intersect(&self, other: Rect) -> Rect {
+        let x0 = self.x.max(other.x);
+        let y0 = self.y.max(other.y);
+        let x1 = self.right().min(other.right());
+        let y1 = self.bottom().min(other.bottom());
+        Rect::new(x0, y0, (x1 - x0).max(1.0), (y1 - y0).max(1.0))
+    }
+
     /// Shrink by `margin` on every side, never producing a negative rect.
     pub fn inset(&self, margin: f32) -> Rect {
         let w = (self.w - margin * 2.0).max(1.0);
@@ -185,6 +194,17 @@ mod tests {
         assert_eq!(r.y, 800.0 - 270.0);
         assert_eq!(r.w, 198.0);
         assert_eq!(r.h, 288.0);
+    }
+
+    #[test]
+    fn window_rect_is_clipped_to_the_visible_screen() {
+        let desired = Rect::new(-40.0, -30.0, 300.0, 400.0);
+        let screen = Rect::new(0.0, 50.0, 5120.0, 2672.0);
+        let visible = desired.intersect(screen);
+        assert_eq!(visible, Rect::new(0.0, 50.0, 260.0, 320.0));
+        // Fully inside: unchanged.
+        let inside = Rect::new(10.0, 100.0, 50.0, 60.0);
+        assert_eq!(inside.intersect(screen), inside);
     }
 
     #[test]

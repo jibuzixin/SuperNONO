@@ -163,6 +163,7 @@
           ],
           "loop": false,
           "auto_end": false,
+          "return_facing": null,
           "audio": null
         },
         {
@@ -188,6 +189,7 @@
           ],
           "loop": false,
           "auto_end": true,
+          "return_facing": null,
           "audio": {
             "file": "nono-sounds/sounds/action_boot.mp3",
             "loops": 1,
@@ -218,6 +220,7 @@
           ],
           "loop": false,
           "auto_end": false,
+          "return_facing": null,
           "audio": {
             "file": "nono-sounds/sounds/action_shutdown.mp3",
             "loops": 1,
@@ -248,6 +251,7 @@
           ],
           "loop": false,
           "auto_end": true,
+          "return_facing": null,
           "audio": {
             "file": "nono-sounds/sounds/action_ball.mp3",
             "loops": 1,
@@ -278,6 +282,7 @@
           ],
           "loop": false,
           "auto_end": true,
+          "return_facing": "left",
           "audio": {
             "file": "nono-sounds/sounds/action_battery.mp3",
             "loops": 1,
@@ -308,6 +313,7 @@
           ],
           "loop": false,
           "auto_end": true,
+          "return_facing": "down",
           "audio": {
             "file": "nono-sounds/sounds/action_summon.mp3",
             "loops": 1,
@@ -338,6 +344,7 @@
           ],
           "loop": false,
           "auto_end": true,
+          "return_facing": "down",
           "audio": {
             "file": "nono-sounds/sounds/action_cube.mp3",
             "loops": 1,
@@ -607,6 +614,7 @@
           ],
           "loop": false,
           "auto_end": false,
+          "return_facing": null,
           "audio": null
         },
         {
@@ -632,6 +640,7 @@
           ],
           "loop": false,
           "auto_end": true,
+          "return_facing": null,
           "audio": {
             "file": "nono-sounds/sounds/action_boot_s2.mp3",
             "loops": 1,
@@ -662,6 +671,7 @@
           ],
           "loop": false,
           "auto_end": false,
+          "return_facing": null,
           "audio": {
             "file": "nono-sounds/sounds/action_shutdown_s2.mp3",
             "loops": 1,
@@ -692,6 +702,7 @@
           ],
           "loop": false,
           "auto_end": true,
+          "return_facing": null,
           "audio": {
             "file": "nono-sounds/sounds/action_ball_s2.mp3",
             "loops": 1,
@@ -722,6 +733,7 @@
           ],
           "loop": false,
           "auto_end": true,
+          "return_facing": "right",
           "audio": {
             "file": "nono-sounds/sounds/action_battery_s2.mp3",
             "loops": 1,
@@ -752,6 +764,7 @@
           ],
           "loop": false,
           "auto_end": true,
+          "return_facing": "down",
           "audio": {
             "file": "nono-sounds/sounds/action_summon_s2.mp3",
             "loops": 1,
@@ -782,6 +795,7 @@
           ],
           "loop": false,
           "auto_end": true,
+          "return_facing": "down",
           "audio": {
             "file": "nono-sounds/sounds/action_cube_s2.mp3",
             "loops": 1,
@@ -1051,6 +1065,7 @@
           ],
           "loop": false,
           "auto_end": true,
+          "return_facing": null,
           "audio": {
             "file": "nono-sounds/sounds/action_boot_s3.mp3",
             "loops": 1,
@@ -1081,6 +1096,7 @@
           ],
           "loop": false,
           "auto_end": false,
+          "return_facing": null,
           "audio": {
             "file": "nono-sounds/sounds/action_shutdown_s3.mp3",
             "loops": 1,
@@ -1111,6 +1127,7 @@
           ],
           "loop": false,
           "auto_end": true,
+          "return_facing": null,
           "audio": {
             "file": "nono-sounds/sounds/action_ball_s3.mp3",
             "loops": 1,
@@ -1141,6 +1158,7 @@
           ],
           "loop": false,
           "auto_end": true,
+          "return_facing": null,
           "audio": {
             "file": "nono-sounds/sounds/action_battery_s3.mp3",
             "loops": 1,
@@ -1171,6 +1189,7 @@
           ],
           "loop": false,
           "auto_end": true,
+          "return_facing": "down",
           "audio": {
             "file": "nono-sounds/sounds/action_summon_s3.mp3",
             "loops": 1,
@@ -1201,6 +1220,7 @@
           ],
           "loop": false,
           "auto_end": true,
+          "return_facing": "down",
           "audio": {
             "file": "nono-sounds/sounds/action_cube_s3.mp3",
             "loops": 1,

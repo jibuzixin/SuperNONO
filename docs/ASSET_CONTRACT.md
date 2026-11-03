@@ -50,6 +50,7 @@ nono --check                            # 从应用侧校验
           "content_bbox": [-0.01, 0.05, 131.57, 242.81],
           "loop": false,
           "auto_end": true,
+          "return_facing": null,
           "audio": {
             "file": "nono-sounds/sounds/action_boot.mp3",
             "loops": 1,
@@ -86,6 +87,7 @@ nono --check                            # 从应用侧校验
 | `frames` / `fps` | 帧数与帧率，来自 Lottie 的 `op - ip` / `fr` |
 | `loop` | 走路为 `true`；动作/表情为 `false` |
 | `auto_end` | 动作播完后是否回 Idle。充电/关机为 `false`（停在末帧） |
+| `return_facing` | 回待机时的朝向（`down/left/right/...`）。召唤、玩魔方为 `down`；吃电池形态 1 左、形态 2 右 |
 | `audio.loops` | `null` + `loop_until_stop=true` 表示一直循环到下一个动画 |
 | `content_bbox` | 内容包围盒（预留给逐像素命中/裁切，M1 未使用） |
 
@@ -105,21 +107,45 @@ nono --check                            # 从应用侧校验
 
 ## 3. 播放与音效语义
 
-- **走路**：循环；移动方向由目标点差值量化为八方向，方向在起步时锁定。
+- **走路 / 静止**：走路动画一直循环。静止时原地播放（托盘「静止时播放走路」可关，
+  关掉后待机不再重绘、CPU≈0）。移动方向由目标点差值量化为八方向，起步时锁定。
+  起步/停步不会重启循环相位，避免卡顿。
 - **动作**：播一遍停在末帧。`auto_end=1` 的动作播完回 Idle 并清理；
   `auto_end=0`（形态 1/2 的充电、关机）停在末帧保持占用，直到用户交互。
 - **表情**：播一遍回 Idle；跨形态表情名不同（形态 3：头晕/生气/玩乐/开心）。
 - **音效**：动作开始时播放；下一个动作/表情开始前停止。走路、表情、充电在
   原资源里没有声音（`audio: null`），不要伪造。
 
-## 4. 渲染细节（ThorVG）
+## 4. 逐动画修正 `tuning.json`
+
+上游 SWF 转换出的个别动作与走路不完全一致，`assets/tuning.json` 提供局部补偿，
+不改源 Lottie：
+
+```json
+{
+  "format_version": 1,
+  "animations": {
+    "form2/action/boot": { "offset": [0, 2.5] },
+    "form2/action/cube": { "scale": 0.83, "offset": [0, -2.4] }
+  }
+}
+```
+
+- `scale`：以 `petAnchor` 为中心缩放（1.0 为原始）。
+- `offset`：在画布单位下的平移（正 y 向下）。
+- 键是运行时动画 id：`form2/action/boot`、`form2/walk/down`、`form2/expr/happy`。
+
+当前修正值来自实测：形态 2 开机动画整体偏高 2.5 画布单位；玩魔方的宠物比待机大约
+1.21 倍（面罩宽度 30.7 vs 25.3），缩到 0.83 并再上移 2.4 后与待机重合。
+
+## 5. 渲染细节（ThorVG）
 
 - 关键帧是 **hold（`h:1`）**，必须按整数帧推进；ThorVG 的 Lottie loader 支持。
 - 帧号允许小数，但 `set_frame` 与当前帧相差 < 0.0009 时会返回
   `InsufficientCondition`，调用方应视为「无需更新」。
 - 画布是预乘 `ABGR8888`，小端内存里是 RGBA。
 
-## 5. 新增素材
+## 6. 新增素材
 
 1. 按现有目录约定放 Lottie 文件和 `manifest.json`（字段参考现有 manifest）。
 2. 在 `tools/build_catalog.py` 里加入新目录（如果是新形态）。

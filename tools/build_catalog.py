@@ -34,6 +34,11 @@ DIRECTIONS = [
 # Emitted before the catalog so the file is easy to diff / review.
 SCHEMA_VERSION = 1
 
+# Direction the pet should face when an action returns to idle.  The original
+# client leaves the pet facing the direction it was using the object from.
+RETURN_FACING_BY_SLUG = {"summon": "down", "cube": "down"}
+RETURN_FACING_BY_FORM_SLUG = {(1, "battery"): "left", (2, "battery"): "right"}
+
 
 class CatalogError(RuntimeError):
     pass
@@ -150,6 +155,10 @@ def build(assets_dir: Path):
                         "content_bbox": entry.get("contentBBox"),
                         "loop": bool(playback.get("loop", False)),
                         "auto_end": bool(playback.get("autoEnd", 1)),
+                        "return_facing": RETURN_FACING_BY_FORM_SLUG.get(
+                            (form, entry["slug"])
+                        )
+                        or RETURN_FACING_BY_SLUG.get(entry["slug"]),
                         "audio": audio_of(entry, assets_dir),
                     }
                 )

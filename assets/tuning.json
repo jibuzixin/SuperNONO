@@ -1,0 +1,8 @@
+{
+  "format_version": 1,
+  "note": "逐动画的渲染修正（画布单位）。上游 SWF 转换后个别动作与走路不完全一致，这里做局部补偿，不改源 Lottie。scale 以 petAnchor 为中心缩放，offset 为平移。",
+  "animations": {
+    "form2/action/boot": { "offset": [0, 2.5] },
+    "form2/action/cube": { "scale": 0.83, "offset": [0, -2.4] }
+  }
+}

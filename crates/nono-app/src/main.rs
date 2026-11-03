@@ -56,7 +56,11 @@ struct App {
     tray: Option<TrayMenu>,
     drag: Option<DragState>,
     cursor: PhysicalPosition<f64>,
+    /// Usable screen area (menu bar / Dock excluded), top-left physical px.
+    screen_bounds: Rect,
+    /// Kept on the same rect as `screen_bounds` for the behaviour scheduler.
     bounds: Rect,
+    crop_buf: Vec<u8>,
     last_anim_id: String,
     last_frame_key: i64,
     dirty: bool,
@@ -104,7 +108,9 @@ impl App {
             tray: None,
             drag: None,
             cursor: PhysicalPosition::new(0.0, 0.0),
+            screen_bounds: Rect::new(0.0, 0.0, 1440.0, 900.0),
             bounds: Rect::new(0.0, 0.0, 1440.0, 900.0),
+            crop_buf: Vec::new(),
             last_anim_id: String::new(),
             last_frame_key: i64::MIN,
             dirty: true,
@@ -121,31 +127,36 @@ impl App {
         let monitor = event_loop
             .primary_monitor()
             .or_else(|| event_loop.available_monitors().next());
-        let (bounds, default_anchor, dpi) = match &monitor {
+        let (monitor_bounds, dpi) = match &monitor {
             Some(monitor) => {
                 let pos = monitor.position();
                 let size = monitor.size();
-                let bounds = Rect::new(
-                    pos.x as f32,
-                    pos.y as f32,
-                    size.width as f32,
-                    size.height as f32,
-                );
-                let anchor = Point::new(
-                    bounds.x + bounds.w * 0.75,
-                    bounds.y + bounds.h * 0.82,
-                );
-                (bounds, anchor, monitor.scale_factor())
+                (
+                    Rect::new(
+                        pos.x as f32,
+                        pos.y as f32,
+                        size.width as f32,
+                        size.height as f32,
+                    ),
+                    monitor.scale_factor(),
+                )
             }
-            None => (Rect::new(0.0, 0.0, 1440.0, 900.0), Point::new(1080.0, 738.0), 2.0),
+            None => (Rect::new(0.0, 0.0, 1440.0, 900.0), 2.0),
         };
-        self.bounds = bounds;
-
+        // macOS clamps oversized action windows to the usable screen area, which
+        // would shift the pet.  Clip the window ourselves instead.
+        let screen_bounds = nono_platform::screen_visible_bounds().unwrap_or(monitor_bounds);
+        self.bounds = screen_bounds;
+        self.screen_bounds = screen_bounds;
+        let default_anchor = Point::new(
+            screen_bounds.x + screen_bounds.w * 0.75,
+            screen_bounds.y + screen_bounds.h * 0.82,
+        );
         let anchor = self
             .config
             .anchor
             .unwrap_or(default_anchor)
-            .clamp(bounds);
+            .clamp(screen_bounds);
         let now = Instant::now();
         self.state = PetState::new(&self.catalog, self.config.form, anchor, self.config.scale, dpi as f32, now);
 
@@ -159,7 +170,7 @@ impl App {
             anchor = ?(anchor.x, anchor.y),
             "monitor geometry"
         );
-        let rect = self.state.window_rect();
+        let rect = self.visible_rect();
         let window = create_pet_window(event_loop, rect).context("creating the pet window")?;
         #[cfg(target_os = "macos")]
         {
@@ -172,7 +183,7 @@ impl App {
         let actual_dpi = window.scale_factor();
         if (actual_dpi - dpi).abs() > 0.01 {
             self.state.set_dpi(actual_dpi as f32);
-            let rect = self.state.window_rect();
+            let rect = self.visible_rect();
             let _ = window.request_inner_size(PhysicalSize::new(rect.w as u32, rect.h as u32));
             window.set_outer_position(PhysicalPosition::new(rect.x as i32, rect.y as i32));
         }
@@ -199,7 +210,7 @@ impl App {
         self.audio.set_enabled(self.config.sound);
         self.audio.set_volume(self.config.volume);
 
-        self.sync_animation(now, true);
+        self.sync_animation(now, true, "setup");
         self.render_now(now);
         self.bus.publish(Event::ChangeForm { form: self.state.form });
 
@@ -211,12 +222,12 @@ impl App {
 
     // ── animation / rendering ───────────────────────────────────────
 
-    fn sync_animation(&mut self, now: Instant, force: bool) {
+    fn sync_animation(&mut self, now: Instant, force: bool, reason: &'static str) {
         let anim_id = self.state.anim.id.clone();
         if !force && anim_id == self.last_anim_id {
             return;
         }
-        let rect = self.state.window_rect();
+        let rect = self.visible_rect();
         let dpi = self.state.dpi;
         if let Some(window) = &self.window {
             let _ = window.request_inner_size(PhysicalSize::new(rect.w as u32, rect.h as u32));
@@ -232,9 +243,8 @@ impl App {
         let scale = self.state.scale * self.state.dpi;
         match self.renderer.load(&self.state.anim, scale) {
             Ok(()) => {
-                let (w, h) = self.renderer.size();
                 if let Some(presenter) = self.presenter.as_mut() {
-                    if let Err(err) = presenter.resize(w, h, dpi as f64) {
+                    if let Err(err) = presenter.resize(rect.w as u32, rect.h as u32, dpi as f64) {
                         tracing::warn!(%err, "presenter resize failed");
                     }
                 }
@@ -260,6 +270,8 @@ impl App {
         tracing::debug!(
             anim = %self.last_anim_id,
             mode = self.state.mode.as_str(),
+            reason,
+            force,
             size = ?(rect.w, rect.h),
             "animation switch"
         );
@@ -273,12 +285,33 @@ impl App {
             tracing::warn!(%err, frame, "render failed");
             return;
         }
-        let (width, height) = self.renderer.size();
-        if let Some(presenter) = self.presenter.as_mut() {
-            if let Err(err) = presenter.present(self.renderer.rgba8(), width, height, self.state.dpi as f64) {
-                tracing::warn!(%err, "present failed");
+        let (full_w, full_h) = self.renderer.size();
+        let desired = self.state.window_rect();
+        let visible = desired.intersect(self.screen_bounds);
+        let ox = ((visible.x - desired.x).round().max(0.0) as u32).min(full_w.saturating_sub(1));
+        let oy = ((visible.y - desired.y).round().max(0.0) as u32).min(full_h.saturating_sub(1));
+        let crop_w = (visible.w.round() as u32).min(full_w - ox).max(1);
+        let crop_h = (visible.h.round() as u32).min(full_h - oy).max(1);
+        let dpi = self.state.dpi as f64;
+        {
+            // Split borrows: the renderer is read, the crop buffer is written,
+            // and only then is the presenter called.
+            let Self { renderer, presenter, crop_buf, .. } = self;
+            let Some(presenter) = presenter.as_mut() else { return };
+            let full = renderer.rgba8();
+            if ox == 0 && oy == 0 && crop_w == full_w && crop_h == full_h {
+                if let Err(err) = presenter.present(full, full_w, full_h, dpi) {
+                    tracing::warn!(%err, "present failed");
+                }
+            } else {
+                Self::crop_into(full, full_w, ox, oy, crop_w, crop_h, crop_buf);
+                if let Err(err) = presenter.present(crop_buf, crop_w, crop_h, dpi) {
+                    tracing::warn!(%err, "present failed");
+                }
             }
         }
+        let width = crop_w;
+        let height = crop_h;
         self.last_frame_key = frame_key(frame);
         self.dirty = false;
         self.render_count += 1;
@@ -297,8 +330,52 @@ impl App {
 
     fn position_window(&self) {
         let Some(window) = &self.window else { return };
-        let rect = self.state.window_rect();
+        let rect = self.visible_rect();
         window.set_outer_position(PhysicalPosition::new(rect.x as i32, rect.y as i32));
+    }
+
+    /// The part of the animation window that fits on the usable screen.
+    fn visible_rect(&self) -> Rect {
+        self.state.window_rect().intersect(self.screen_bounds)
+    }
+
+    /// Copies a sub-rectangle of an RGBA frame (used when the window had to be
+    /// clipped at a screen edge).
+    fn crop_into(src: &[u8], src_w: u32, x: u32, y: u32, w: u32, h: u32, out: &mut Vec<u8>) {
+        out.clear();
+        out.reserve((w as usize) * (h as usize) * 4);
+        for row in y..y + h {
+            let start = ((row as usize) * (src_w as usize) + (x as usize)) * 4;
+            out.extend_from_slice(&src[start..start + (w as usize) * 4]);
+        }
+    }
+
+    /// Reloads the renderer at the current scale while keeping the animation
+    /// phase (used for real scale-factor changes and menu zoom changes).
+    fn reload_preserving_frame(&mut self, now: Instant) {
+        let rect = self.visible_rect();
+        let dpi = self.state.dpi;
+        if let Some(window) = &self.window {
+            let _ = window.request_inner_size(PhysicalSize::new(rect.w as u32, rect.h as u32));
+            window.set_outer_position(PhysicalPosition::new(rect.x as i32, rect.y as i32));
+            let interactive = self.state.mode != Mode::Action || !self.state.anim.auto_end;
+            if let Err(err) = window.set_cursor_hittest(interactive) {
+                tracing::debug!(%err, "set_cursor_hittest failed");
+            }
+        }
+        let scale = self.state.scale * self.state.dpi;
+        if let Err(err) = self.renderer.load(&self.state.anim, scale) {
+            tracing::warn!(%err, "reloading the animation failed");
+        }
+        if let Some(presenter) = self.presenter.as_mut() {
+            if let Err(err) = presenter.resize(rect.w as u32, rect.h as u32, dpi as f64) {
+                tracing::warn!(%err, "presenter resize failed");
+            }
+        }
+        self.last_anim_id = self.state.anim.id.clone();
+        self.last_frame_key = i64::MIN;
+        self.dirty = true;
+        self.render_now(now);
     }
 
     fn frame_due(&self, now: Instant) -> bool {
@@ -325,7 +402,7 @@ impl App {
         };
         let slug = expressions[idx].slug.clone();
         if self.state.play_expression(&self.catalog, &slug, now) {
-            self.sync_animation(now, false);
+            self.sync_animation(now, false, "state-change");
             self.render_now(now);
         }
     }
@@ -341,7 +418,7 @@ impl App {
             actions[rng.gen_range(0..actions.len())].slug.clone()
         };
         if self.state.play_action(&self.catalog, &slug, now) {
-            self.sync_animation(now, false);
+            self.sync_animation(now, false, "state-change");
             self.render_now(now);
         }
     }
@@ -376,7 +453,7 @@ impl App {
                         self.state.anim = anim;
                         self.state.mode = Mode::Walk;
                         self.state.anim_started = now;
-                        self.sync_animation(now, true);
+                        self.sync_animation(now, true, "play-scripted");
                     }
                 }
             }
@@ -424,6 +501,16 @@ impl App {
                 }
                 self.save_config();
             }
+            MENU_IDLE_ANIMATION => {
+                self.config.idle_animation = !self.config.idle_animation;
+                if let Some(tray) = &self.tray {
+                    tray.sync_checks(&self.config);
+                }
+                // Redraw once so turning it off freezes on a current pose.
+                self.dirty = true;
+                self.render_now(Instant::now());
+                self.save_config();
+            }
             _ => {
                 if let Some(form) = id.strip_prefix(MENU_FORM_PREFIX) {
                     if let Ok(form) = form.parse::<u8>() {
@@ -447,7 +534,7 @@ impl App {
             return;
         }
         self.config.form = form;
-        self.sync_animation(now, false);
+        self.sync_animation(now, false, "state-change");
         self.render_now(now);
         self.save_config();
         self.bus.publish(Event::ChangeForm { form });
@@ -459,8 +546,7 @@ impl App {
     fn set_scale(&mut self, scale: f32, now: Instant) {
         self.config.scale = scale.clamp(0.5, 3.0);
         self.state.set_scale(self.config.scale);
-        self.sync_animation(now, true);
-        self.render_now(now);
+        self.reload_preserving_frame(now);
         self.save_config();
         self.bus.publish(Event::SetScale { scale: self.config.scale });
         if let Some(tray) = &self.tray {
@@ -486,7 +572,7 @@ impl App {
             return;
         }
         if self.state.play_action(&self.catalog, &slug, now) {
-            self.sync_animation(now, false);
+            self.sync_animation(now, false, "state-change");
             self.render_now(now);
         }
     }
@@ -504,7 +590,7 @@ impl App {
             }
         }
         if self.state.play_expression(&self.catalog, &slug, now) {
-            self.sync_animation(now, false);
+            self.sync_animation(now, false, "state-change");
             self.render_now(now);
         }
     }
@@ -513,7 +599,9 @@ impl App {
 
     fn schedule(&self, event_loop: &ActiveEventLoop) {
         let now = Instant::now();
-        let next = if self.state.is_animating() {
+        let idle = self.state.mode == Mode::Idle;
+        let animating = self.state.is_animating() && (!idle || self.config.idle_animation);
+        let next = if animating {
             now + ANIMATION_POLL
         } else if self.state.mode == Mode::Action && !self.state.anim.auto_end {
             // Holding the last frame of charge/shutdown: sleep until the user
@@ -562,9 +650,16 @@ impl ApplicationHandler<UserEvent> for App {
                 self.render_now(Instant::now());
             }
             WindowEvent::ScaleFactorChanged { scale_factor, .. } => {
-                self.state.set_dpi(scale_factor as f32);
-                self.sync_animation(Instant::now(), true);
-                self.render_now(Instant::now());
+                // winit also emits this when a window is resized on the same
+                // display (observed with the big action windows); reloading in
+                // that case restarts the animation, so only react to real changes.
+                if (self.state.dpi as f64 - scale_factor).abs() > 0.001 {
+                    tracing::debug!(scale_factor, "scale factor changed");
+                    self.state.set_dpi(scale_factor as f32);
+                    self.reload_preserving_frame(Instant::now());
+                } else {
+                    tracing::debug!(scale_factor, "spurious scale factor event ignored");
+                }
             }
             WindowEvent::CursorMoved { position, .. } => {
                 let previous = self.cursor;
@@ -575,17 +670,17 @@ impl ApplicationHandler<UserEvent> for App {
                     drag.distance += (dx * dx + dy * dy).sqrt();
                     if let Some(window) = &self.window {
                         if let Ok(current) = window.outer_position() {
-                            let new_x = current.x as f32 + dx;
-                            let new_y = current.y as f32 + dy;
+                            let new_x = (current.x as f32 + dx).round();
+                            let new_y = (current.y as f32 + dy).round();
                             window.set_outer_position(PhysicalPosition::new(
-                                new_x.round() as i32,
-                                new_y.round() as i32,
+                                new_x as i32,
+                                new_y as i32,
                             ));
-                            let s = self.state.scale * self.state.dpi;
-                            self.state.anchor = Point::new(
-                                new_x + self.state.anim.pet_anchor.0 * s,
-                                new_y + self.state.anim.pet_anchor.1 * s,
-                            );
+                            // Move the anchor by the delta actually applied; using
+                            // the window origin directly would be wrong when the
+                            // window is clipped at a screen edge.
+                            self.state.anchor.x += new_x - current.x as f32;
+                            self.state.anchor.y += new_y - current.y as f32;
                         }
                     }
                 } else {
@@ -598,7 +693,7 @@ impl ApplicationHandler<UserEvent> for App {
                     let now = Instant::now();
                     if self.state.mode == Mode::Walk {
                         self.state.stop_walk(&self.catalog, now);
-                        self.sync_animation(now, false);
+                        self.sync_animation(now, false, "state-change");
                         self.render_now(now);
                     }
                     self.bus.publish(Event::DragStarted);
@@ -650,7 +745,7 @@ impl ApplicationHandler<UserEvent> for App {
             let anim_id = self.state.anim.id.clone();
             self.bus.publish(Event::AnimationFinished { anim_id });
             if self.state.after_finish(&self.catalog, now) {
-                self.sync_animation(now, false);
+                self.sync_animation(now, false, "state-change");
             }
         }
         if tick.moved {
@@ -658,11 +753,13 @@ impl ApplicationHandler<UserEvent> for App {
         }
 
         if self.behavior.update(&mut self.state, &self.catalog, self.bounds, now) {
-            self.sync_animation(now, false);
+            self.sync_animation(now, false, "state-change");
         }
-        self.sync_animation(now, false);
+        self.sync_animation(now, false, "state-change");
 
-        if self.state.is_animating() || self.dirty {
+        let idle = self.state.mode == Mode::Idle;
+        let animating = self.state.is_animating() && (!idle || self.config.idle_animation);
+        if animating || self.dirty {
             if self.frame_due(now) {
                 self.render_now(now);
             }

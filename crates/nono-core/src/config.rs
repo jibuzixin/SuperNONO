@@ -17,6 +17,9 @@ pub struct Config {
     pub volume: f32,
     /// Allow NONO to wander around on its own.
     pub wander: bool,
+    /// Keep the walk cycle playing while standing still (the original client
+    /// does this).  Turn it off to save CPU when idle.
+    pub idle_animation: bool,
     pub roam_min_secs: f32,
     pub roam_max_secs: f32,
     /// Screen-space (physical px) position of the pet's feet.  `None` means
@@ -32,6 +35,7 @@ impl Default for Config {
             sound: true,
             volume: 0.7,
             wander: true,
+            idle_animation: true,
             roam_min_secs: 6.0,
             roam_max_secs: 16.0,
             anchor: None,

@@ -4,6 +4,7 @@
 //! different shapes; `tools/build_catalog.py` normalises them into a single
 //! catalog.  This module is the only place that knows about that schema.
 
+use std::collections::BTreeMap;
 use std::path::{Path, PathBuf};
 
 use serde::Deserialize;
@@ -42,6 +43,24 @@ pub enum AnimationKind {
     Expression,
 }
 
+/// Per-animation placement correction, in canvas units.
+///
+/// The upstream conversions are not perfectly consistent between the walk cycle
+/// and some actions (see `assets/tuning.json`).  `scale` scales the picture
+/// around the pet anchor and `offset` shifts it in canvas units; both are
+/// applied at render time without touching the source Lottie files.
+#[derive(Debug, Clone, Copy, PartialEq)]
+pub struct Placement {
+    pub scale: f32,
+    pub offset: (f32, f32),
+}
+
+impl Default for Placement {
+    fn default() -> Self {
+        Self { scale: 1.0, offset: (0.0, 0.0) }
+    }
+}
+
 #[derive(Debug, Clone)]
 pub struct AudioSpec {
     /// Absolute path, resolved against the assets root.
@@ -68,8 +87,10 @@ pub struct AnimationSpec {
     /// is reached.  `false` for charge/shutdown — they hold the final frame.
     pub auto_end: bool,
     pub audio: Option<AudioSpec>,
-    /// First frame to show (0 for everything except the idle pose).
-    pub start_frame: u32,
+    /// Facing to use when an action returns to idle (`None` keeps the current).
+    pub return_facing: Option<Direction>,
+    /// Rendering correction from `assets/tuning.json`.
+    pub placement: Placement,
     /// Human-readable label (Chinese name or direction).
     pub label: String,
 }
@@ -139,6 +160,9 @@ pub struct ActionDef {
     pub pet_anchor: [f32; 2],
     #[serde(default = "default_true")]
     pub auto_end: bool,
+    /// Optional direction the pet should face when this action ends.
+    #[serde(default)]
+    pub return_facing: Option<String>,
     #[serde(default)]
     pub audio: Option<AudioDef>,
 }
@@ -183,10 +207,30 @@ pub struct ExpressionInfo {
     pub name: String,
 }
 
+#[derive(Debug, Deserialize)]
+struct TuningFile {
+    format_version: u32,
+    #[serde(default)]
+    animations: BTreeMap<String, PlacementDef>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+struct PlacementDef {
+    #[serde(default = "one")]
+    scale: f32,
+    #[serde(default)]
+    offset: [f32; 2],
+}
+
+fn one() -> f32 {
+    1.0
+}
+
 #[derive(Debug)]
 pub struct Catalog {
     root: PathBuf,
     raw: CatalogFile,
+    tuning: BTreeMap<String, Placement>,
 }
 
 impl Catalog {
@@ -202,7 +246,8 @@ impl Catalog {
                 path: path.clone(),
                 source,
             })?;
-        let catalog = Self { root, raw };
+        let tuning = Self::load_tuning(&root)?;
+        let catalog = Self { root, raw, tuning };
         catalog.validate()?;
         Ok(catalog)
     }
@@ -270,16 +315,6 @@ impl Catalog {
             .unwrap_or(false)
     }
 
-    /// The idle pose: a held frame of the walk animation for `dir`.
-    pub fn idle_spec(&self, form: u8, dir: Direction) -> Result<AnimationSpec, CatalogError> {
-        let mut spec = self.walk_spec(form, dir)?;
-        spec.id = format!("form{form}/idle/{}", dir.file_key());
-        spec.kind = AnimationKind::Walk;
-        spec.label = format!("待机·{}", dir.file_key());
-        spec.start_frame = self.form(form).map(|f| f.walk.idle_frame).unwrap_or(0);
-        Ok(spec)
-    }
-
     pub fn walk_spec(&self, form: u8, dir: Direction) -> Result<AnimationSpec, CatalogError> {
         let form_def = self.form(form)?;
         let key = dir.file_key();
@@ -292,8 +327,9 @@ impl Catalog {
                 slug: key.to_string(),
             })?;
         let file = self.resolve(&def.file)?;
+        let id = format!("form{form}/walk/{key}");
         Ok(AnimationSpec {
-            id: format!("form{form}/walk/{key}"),
+            id: id.clone(),
             kind: AnimationKind::Walk,
             form,
             file,
@@ -304,7 +340,8 @@ impl Catalog {
             loop_anim: true,
             auto_end: false,
             audio: def.audio.as_ref().and_then(|a| self.audio(a)),
-            start_frame: 0,
+            return_facing: None,
+            placement: self.placement_for(&id),
             label: format!("走路·{key}"),
         })
     }
@@ -320,8 +357,15 @@ impl Catalog {
                 slug: slug.to_string(),
             })?;
         let file = self.resolve(&def.file)?;
+        let id = format!("form{form}/action/{slug}");
+        let return_facing = match def.return_facing.as_deref() {
+            Some(dir) => Some(Direction::from_key(dir).ok_or_else(|| {
+                CatalogError::Invalid(format!("{id}: unknown return_facing {dir}"))
+            })?),
+            None => None,
+        };
         Ok(AnimationSpec {
-            id: format!("form{form}/action/{slug}"),
+            id: id.clone(),
             kind: AnimationKind::Action,
             form,
             file,
@@ -332,7 +376,8 @@ impl Catalog {
             loop_anim: false,
             auto_end: def.auto_end,
             audio: def.audio.as_ref().and_then(|a| self.audio(a)),
-            start_frame: 0,
+            return_facing,
+            placement: self.placement_for(&id),
             label: def.name.clone(),
         })
     }
@@ -348,8 +393,9 @@ impl Catalog {
                 slug: slug.to_string(),
             })?;
         let file = self.resolve(&def.file)?;
+        let id = format!("form{form}/expr/{slug}");
         Ok(AnimationSpec {
-            id: format!("form{form}/expr/{slug}"),
+            id: id.clone(),
             kind: AnimationKind::Expression,
             form,
             file,
@@ -360,7 +406,8 @@ impl Catalog {
             loop_anim: false,
             auto_end: true,
             audio: def.audio.as_ref().and_then(|a| self.audio(a)),
-            start_frame: 0,
+            return_facing: None,
+            placement: self.placement_for(&id),
             label: def.name.clone(),
         })
     }
@@ -384,6 +431,47 @@ impl Catalog {
             loops: def.loops,
             loop_until_stop: def.loop_until_stop,
         })
+    }
+
+    /// Optional per-animation corrections (`assets/tuning.json`).
+    fn load_tuning(root: &Path) -> Result<BTreeMap<String, Placement>, CatalogError> {
+        let path = root.join("tuning.json");
+        if !path.is_file() {
+            return Ok(BTreeMap::new());
+        }
+        let bytes = std::fs::read(&path).map_err(|source| CatalogError::Io {
+            path: path.clone(),
+            source,
+        })?;
+        let file: TuningFile =
+            serde_json::from_slice(&bytes).map_err(|source| CatalogError::Parse {
+                path: path.clone(),
+                source,
+            })?;
+        if file.format_version != 1 {
+            return Err(CatalogError::Invalid(format!(
+                "unsupported tuning format_version {}",
+                file.format_version
+            )));
+        }
+        let mut tuning = BTreeMap::new();
+        for (id, def) in file.animations {
+            if !def.scale.is_finite() || def.scale <= 0.0 {
+                return Err(CatalogError::Invalid(format!("{id}: invalid scale")));
+            }
+            tuning.insert(
+                id,
+                Placement {
+                    scale: def.scale,
+                    offset: (def.offset[0], def.offset[1]),
+                },
+            );
+        }
+        Ok(tuning)
+    }
+
+    fn placement_for(&self, id: &str) -> Placement {
+        self.tuning.get(id).copied().unwrap_or_default()
     }
 
     fn validate(&self) -> Result<(), CatalogError> {
@@ -466,6 +554,32 @@ mod tests {
                 assert_eq!(spec.kind, AnimationKind::Expression);
             }
         }
+    }
+
+    #[test]
+    fn return_facing_and_tuning_are_loaded() {
+        let Some(catalog) = repo_catalog() else {
+            return;
+        };
+        assert_eq!(
+            catalog.action_spec(1, "battery").unwrap().return_facing,
+            Some(Direction::Left)
+        );
+        assert_eq!(
+            catalog.action_spec(2, "battery").unwrap().return_facing,
+            Some(Direction::Right)
+        );
+        assert_eq!(
+            catalog.action_spec(1, "summon").unwrap().return_facing,
+            Some(Direction::Down)
+        );
+        // assets/tuning.json compensates the form-2 boot/cube conversion.
+        assert!(catalog.action_spec(2, "boot").unwrap().placement.offset.1 > 0.0);
+        assert!(catalog.action_spec(2, "cube").unwrap().placement.scale < 0.9);
+        assert_eq!(
+            catalog.walk_spec(2, Direction::Down).unwrap().placement,
+            Placement::default()
+        );
     }
 
     #[test]

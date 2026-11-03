@@ -8,6 +8,7 @@ pub const MENU_HIDE: &str = "hide";
 pub const MENU_QUIT: &str = "quit";
 pub const MENU_SOUND: &str = "sound";
 pub const MENU_WANDER: &str = "wander";
+pub const MENU_IDLE_ANIMATION: &str = "idle_animation";
 pub const MENU_ACTION_PREFIX: &str = "action:";
 pub const MENU_EXPRESSION_PREFIX: &str = "expression:";
 pub const MENU_FORM_PREFIX: &str = "form:";
@@ -30,6 +31,7 @@ pub struct TrayMenu {
     pub hide: MenuItem,
     pub sound: CheckMenuItem,
     pub wander: CheckMenuItem,
+    pub idle_animation: CheckMenuItem,
     pub form_items: Vec<(u8, CheckMenuItem)>,
     pub scale_items: Vec<(f32, CheckMenuItem)>,
     // Keep the owned wrappers alive for as long as the tray lives.
@@ -43,6 +45,7 @@ impl TrayMenu {
     pub fn sync_checks(&self, config: &Config) {
         self.sound.set_checked(config.sound);
         self.wander.set_checked(config.wander);
+        self.idle_animation.set_checked(config.idle_animation);
         for (form, item) in &self.form_items {
             item.set_checked(*form == config.form);
         }
@@ -135,8 +138,16 @@ pub fn build_tray(
 
     let sound = CheckMenuItem::with_id(MENU_SOUND, "音效", true, config.sound, None);
     let wander = CheckMenuItem::with_id(MENU_WANDER, "自由走动", true, config.wander, None);
+    let idle_animation = CheckMenuItem::with_id(
+        MENU_IDLE_ANIMATION,
+        "静止时播放走路",
+        true,
+        config.idle_animation,
+        None,
+    );
     menu.append(&sound)?;
     menu.append(&wander)?;
+    menu.append(&idle_animation)?;
     menu.append(&PredefinedMenuItem::separator())?;
 
     // ── window ───────────────────────────────────────────────────────
@@ -160,6 +171,7 @@ pub fn build_tray(
         hide: hide.clone(),
         sound,
         wander,
+        idle_animation,
         form_items,
         scale_items,
         keep_items,

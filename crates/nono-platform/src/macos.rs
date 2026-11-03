@@ -67,3 +67,24 @@ pub fn screen_geometry() -> Option<(f64, f64, f64, f64)> {
     let frame = screen.frame();
     Some((frame.origin.x, frame.origin.y, frame.size.width, frame.size.height))
 }
+
+/// Usable screen area (excludes the menu bar and the Dock) in **top-left
+/// physical pixels**, matching winit's coordinate space.
+///
+/// M1 assumes the primary display; multi-display visible frames need the anchor
+/// to be mapped to the right screen first.
+pub fn visible_bounds() -> Option<nono_core::Rect> {
+    let mtm = objc2::MainThreadMarker::new()?;
+    let screen = NSScreen::mainScreen(mtm)?;
+    let frame = screen.frame();
+    let visible = screen.visibleFrame();
+    let scale = screen.backingScaleFactor() as f32;
+    // AppKit uses a bottom-left origin; convert to winit's top-left space.
+    let top = frame.size.height - (visible.origin.y + visible.size.height);
+    Some(nono_core::Rect::new(
+        visible.origin.x as f32 * scale,
+        top as f32 * scale,
+        visible.size.width as f32 * scale,
+        visible.size.height as f32 * scale,
+    ))
+}

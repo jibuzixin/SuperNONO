@@ -6,7 +6,7 @@
 
 use std::time::{Duration, Instant};
 
-use crate::catalog::{AnimationSpec, Catalog};
+use crate::catalog::{AnimationKind, AnimationSpec, Catalog};
 use crate::geometry::{pet_window_rect, Direction, Point, Rect};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -71,7 +71,7 @@ impl PetState {
     ) -> Self {
         let facing = Direction::Down;
         let anim = catalog
-            .idle_spec(form, facing)
+            .walk_spec(form, facing)
             .expect("catalog validated at load time");
         Self {
             form,
@@ -99,16 +99,18 @@ impl PetState {
         )
     }
 
-    /// Whether the pet should be rendered continuously right now.
+    /// Whether the current animation still produces new frames.
+    ///
+    /// Idle loops the walk cycle in place (the original client does the same),
+    /// so it animates just like walking; only a held last frame (charge /
+    /// shutdown) stops the clock.
     pub fn is_animating(&self) -> bool {
-        self.mode.is_busy() && !self.finished
+        !self.finished
     }
 
-    /// Current frame of the active animation.  Idle always holds frame 0.
+    /// Current frame of the active animation.  Idle plays the walk cycle in
+    /// place; one-shot animations clamp to their last frame.
     pub fn frame(&self, now: Instant) -> f32 {
-        if self.mode == Mode::Idle {
-            return self.anim.start_frame as f32;
-        }
         let elapsed = now.saturating_duration_since(self.anim_started).as_secs_f32();
         let raw = elapsed * self.anim.fps;
         if self.anim.loop_anim {
@@ -130,11 +132,22 @@ impl PetState {
     }
 
     pub fn idle(&mut self, catalog: &Catalog, now: Instant) {
-        if let Ok(anim) = catalog.idle_spec(self.form, self.facing) {
-            self.anim = anim;
+        match catalog.walk_spec(self.form, self.facing) {
+            Ok(anim) => {
+                // Do not restart the cycle when the pet was already walking in
+                // this direction: stopping should look like a seamless in-place
+                // continuation.
+                let same_cycle = self.anim.kind == AnimationKind::Walk
+                    && self.anim.file == anim.file
+                    && self.anim.fps == anim.fps;
+                self.anim = anim;
+                if !same_cycle {
+                    self.anim_started = now;
+                }
+            }
+            Err(err) => tracing::warn!(%err, "idle animation unavailable"),
         }
         self.mode = Mode::Idle;
-        self.anim_started = now;
         self.finished = false;
         self.walk_target = None;
         self.walk_speed = 0.0;
@@ -198,10 +211,15 @@ impl PetState {
         let dir = Direction::from_delta(target.x - self.anchor.x, target.y - self.anchor.y);
         match catalog.walk_spec(self.form, dir) {
             Ok(anim) => {
+                let same_cycle = self.anim.kind == AnimationKind::Walk
+                    && self.anim.file == anim.file
+                    && self.anim.fps == anim.fps;
                 self.facing = dir;
                 self.anim = anim;
                 self.mode = Mode::Walk;
-                self.anim_started = now;
+                if !same_cycle {
+                    self.anim_started = now;
+                }
                 self.finished = false;
                 self.walk_target = Some(target);
                 self.walk_speed = speed.max(1.0);
@@ -264,6 +282,11 @@ impl PetState {
                 true
             }
             Mode::Action if self.anim.auto_end => {
+                // Some actions leave the pet facing a specific direction
+                // (e.g. battery: left on form 1, right on form 2).
+                if let Some(dir) = self.anim.return_facing {
+                    self.facing = dir;
+                }
                 self.idle(catalog, now);
                 true
             }
@@ -304,15 +327,76 @@ mod tests {
     }
 
     #[test]
-    fn idle_holds_frame_zero_and_is_not_animating() {
+    fn idle_loops_the_walk_cycle_in_place() {
         let Some((_catalog, state)) = catalog_and_state() else { return };
         let now = Instant::now();
         assert_eq!(state.mode, Mode::Idle);
-        assert_eq!(state.frame(now), 0.0);
-        assert!(!state.is_animating());
+        assert!(state.is_animating(), "idle keeps the walk cycle running");
+        // 25 fps, 13 frames: 0.5 s in the cycle is frame 12.5.
+        let later = now + Duration::from_millis(500);
+        let expected = 12.5 % state.anim.frames as f32;
+        assert!((state.frame(later) - expected).abs() < 0.01);
         // 66x96 walk canvas at 1.5x on a 2x display.
         assert_eq!(state.window_rect().w, 198.0);
         assert_eq!(state.window_rect().h, 288.0);
+    }
+
+    #[test]
+    fn walking_and_stopping_keeps_the_cycle_phase() {
+        let Some((catalog, mut state)) = catalog_and_state() else { return };
+        let start = Instant::now();
+        let target = Point::new(state.anchor.x + 40.0, state.anchor.y);
+        state.start_walk(&catalog, target, 400.0, start);
+        let mid = start + Duration::from_millis(200);
+        let phase = state.frame(mid);
+        state.idle(&catalog, mid);
+        assert_eq!(state.mode, Mode::Idle);
+        assert!((state.frame(mid) - phase).abs() < 0.01, "stopping should not restart the cycle");
+    }
+
+    #[test]
+    fn actions_can_override_the_return_facing() {
+        let Some((catalog, mut state)) = catalog_and_state() else { return };
+        let start = Instant::now();
+        // Form 1 battery -> face left afterwards.
+        assert!(state.play_action(&catalog, "battery", start));
+        let end = start + Duration::from_secs_f32(state.anim.duration_secs()) + Duration::from_millis(20);
+        state.tick(&catalog, end);
+        assert!(state.after_finish(&catalog, end));
+        assert_eq!(state.mode, Mode::Idle);
+        assert_eq!(state.facing, Direction::Left);
+
+        // Summon always returns to the front view.
+        state.facing = Direction::Right;
+        assert!(state.play_action(&catalog, "summon", end));
+        let end2 = end + Duration::from_secs_f32(state.anim.duration_secs()) + Duration::from_millis(20);
+        state.tick(&catalog, end2);
+        assert!(state.after_finish(&catalog, end2));
+        assert_eq!(state.facing, Direction::Down);
+    }
+
+    #[test]
+    fn form2_battery_faces_right() {
+        let Some((catalog, mut state)) = catalog_and_state() else { return };
+        let start = Instant::now();
+        assert!(state.set_form(&catalog, 2, start));
+        assert!(state.play_action(&catalog, "battery", start));
+        let end = start + Duration::from_secs_f32(state.anim.duration_secs()) + Duration::from_millis(20);
+        state.tick(&catalog, end);
+        assert!(state.after_finish(&catalog, end));
+        assert_eq!(state.facing, Direction::Right);
+    }
+
+    #[test]
+    fn shutdown_keeps_the_facing_when_it_finishes() {
+        let Some((catalog, mut state)) = catalog_and_state() else { return };
+        let start = Instant::now();
+        state.facing = Direction::Left;
+        assert!(state.play_action(&catalog, "shutdown", start));
+        let end = start + Duration::from_secs_f32(state.anim.duration_secs()) + Duration::from_millis(20);
+        state.tick(&catalog, end);
+        assert!(!state.after_finish(&catalog, end));
+        assert_eq!(state.facing, Direction::Left);
     }
 
     #[test]

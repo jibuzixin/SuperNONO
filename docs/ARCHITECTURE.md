@@ -49,10 +49,13 @@
 
 | 状态 | 说明 | 结束条件 |
 |---|---|---|
-| `Idle` | 静止，持有当前朝向走路动画的第 0 帧 | 用户交互 / 行为调度 |
+| `Idle` | 静止，**原地循环播放**当前朝向的走路动画（可关闭） | 用户交互 / 行为调度 |
 | `Walk` | 沿直线走到目标点，八方向动画 | 到达目标 |
-| `Action` | 播放动作（播一遍） | `auto_end=1` 回 Idle；`auto_end=0` 停在末帧 |
+| `Action` | 播放动作（播一遍） | `auto_end=1` 回 Idle（可带 `return_facing`）；`auto_end=0` 停在末帧 |
 | `Expression` | 播放表情（播一遍） | 播完回 Idle |
+
+动作结束时可以指定回到待机后的朝向（`return_facing`）：召唤/玩魔方回正面，
+形态 1 吃电池回左侧、形态 2 吃电池回右侧。数据来自 catalog，详见素材契约。
 
 素材包的真实语义被如实保留：
 
@@ -89,7 +92,13 @@ x = A.x - pet_anchor.x * scale
 y = A.y - pet_anchor.y * scale
 ```
 
-这样切换动画时 **宠物在屏幕上完全重合**，不会跳动。窗口随动画画布动态缩放：
+这样切换动画时 **宠物在屏幕上完全重合**，不会跳动。
+
+窗口还会与屏幕可用区域（`NSScreen.visibleFrame`，排除菜单栏与 Dock）求交：
+大动作窗口如果会溢出屏幕，就只开可见的那一块，并按裁剪偏移渲染。否则 macOS 会把
+窗口钳回屏幕内，角色就被整体带偏（形态 2 玩球最容易触发）。
+
+窗口随动画画布动态缩放：
 
 - 走路窗口约 `99×144 pt`（1.5×，2x 屏），很轻。
 - 大动作会把窗口临时放大（例如形态 2 玩球到 `1315×720 pt`），期间窗口设为
@@ -105,6 +114,8 @@ y = A.y - pet_anchor.y * scale
 
 - **macOS**：给 `NSView` 的 root layer 加一个 `CALayer` 子层，每帧把 RGBA 包成
   `CGImage` 设置到 `contents`，在 `CATransaction` 里关闭隐式动画。
+  窗口放大时系统会发一次倍率未变的 `ScaleFactorChanged`，必须忽略，否则动画会
+  被重新加载、从头播放。
   （`softbuffer` 的 macOS 后端把 alpha 写死为 `NoneSkipFirst`，不能用于透明窗，
   所以这里自建。）
 - **Windows / Linux**：需要各自的透明呈现后端（分层窗口 / ARGB visual），
