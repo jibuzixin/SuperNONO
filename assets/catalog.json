@@ -27,6 +27,12 @@
               32.7219,
               90.4
             ],
+            "content_bbox": [
+              9.18,
+              0.53,
+              57.35,
+              95.62
+            ],
             "loop": true,
             "audio": null
           },
@@ -41,6 +47,12 @@
             "pet_anchor": [
               32.7219,
               90.4
+            ],
+            "content_bbox": [
+              18.56,
+              0.2,
+              65.72,
+              93.66
             ],
             "loop": true,
             "audio": null
@@ -57,6 +69,12 @@
               32.7219,
               90.4
             ],
+            "content_bbox": [
+              18.56,
+              0.2,
+              65.72,
+              93.66
+            ],
             "loop": true,
             "audio": null
           },
@@ -71,6 +89,12 @@
             "pet_anchor": [
               32.7219,
               90.4
+            ],
+            "content_bbox": [
+              17.47,
+              11.33,
+              65.69,
+              94.91
             ],
             "loop": true,
             "audio": null
@@ -87,6 +111,12 @@
               32.7219,
               90.4
             ],
+            "content_bbox": [
+              2.1,
+              22.15,
+              62.28,
+              94.42
+            ],
             "loop": true,
             "audio": null
           },
@@ -101,6 +131,12 @@
             "pet_anchor": [
               32.7219,
               90.4
+            ],
+            "content_bbox": [
+              -0.0,
+              11.28,
+              48.22,
+              94.86
             ],
             "loop": true,
             "audio": null
@@ -117,6 +153,12 @@
               32.7219,
               90.4
             ],
+            "content_bbox": [
+              0.42,
+              0.0,
+              47.59,
+              93.46
+            ],
             "loop": true,
             "audio": null
           },
@@ -131,6 +173,12 @@
             "pet_anchor": [
               32.7219,
               90.4
+            ],
+            "content_bbox": [
+              0.42,
+              0.0,
+              47.59,
+              93.46
             ],
             "loop": true,
             "audio": null
@@ -478,6 +526,12 @@
               37.0155,
               76.5725
             ],
+            "content_bbox": [
+              11.22,
+              2.9,
+              64.77,
+              82.87
+            ],
             "loop": true,
             "audio": null
           },
@@ -492,6 +546,12 @@
             "pet_anchor": [
               37.0155,
               76.5725
+            ],
+            "content_bbox": [
+              17.84,
+              4.84,
+              74.86,
+              82.87
             ],
             "loop": true,
             "audio": null
@@ -508,6 +568,12 @@
               37.0155,
               76.5725
             ],
+            "content_bbox": [
+              17.84,
+              4.84,
+              74.86,
+              82.87
+            ],
             "loop": true,
             "audio": null
           },
@@ -522,6 +588,12 @@
             "pet_anchor": [
               37.0155,
               76.5725
+            ],
+            "content_bbox": [
+              22.52,
+              17.52,
+              70.43,
+              82.87
             ],
             "loop": true,
             "audio": null
@@ -538,6 +610,12 @@
               37.0155,
               76.5725
             ],
+            "content_bbox": [
+              10.96,
+              23.37,
+              62.78,
+              82.87
+            ],
             "loop": true,
             "audio": null
           },
@@ -552,6 +630,12 @@
             "pet_anchor": [
               37.0155,
               76.5725
+            ],
+            "content_bbox": [
+              5.2,
+              17.52,
+              57.92,
+              82.87
             ],
             "loop": true,
             "audio": null
@@ -568,6 +652,12 @@
               37.0155,
               76.5725
             ],
+            "content_bbox": [
+              0.77,
+              4.84,
+              56.83,
+              82.87
+            ],
             "loop": true,
             "audio": null
           },
@@ -582,6 +672,12 @@
             "pet_anchor": [
               37.0155,
               76.5725
+            ],
+            "content_bbox": [
+              0.77,
+              4.84,
+              56.83,
+              82.87
             ],
             "loop": true,
             "audio": null
@@ -702,7 +798,7 @@
           ],
           "loop": false,
           "auto_end": true,
-          "return_facing": null,
+          "return_facing": "down",
           "audio": {
             "file": "nono-sounds/sounds/action_ball_s2.mp3",
             "loops": 1,
@@ -929,6 +1025,12 @@
               39.4001,
               71.9944
             ],
+            "content_bbox": [
+              5.69,
+              0.59,
+              72.81,
+              79.44
+            ],
             "loop": true,
             "audio": null
           },
@@ -943,6 +1045,12 @@
             "pet_anchor": [
               39.4001,
               71.9944
+            ],
+            "content_bbox": [
+              10.56,
+              4.49,
+              71.05,
+              79.44
             ],
             "loop": true,
             "audio": null
@@ -959,6 +1067,12 @@
               39.4001,
               71.9944
             ],
+            "content_bbox": [
+              10.56,
+              4.49,
+              71.05,
+              79.44
+            ],
             "loop": true,
             "audio": null
           },
@@ -973,6 +1087,12 @@
             "pet_anchor": [
               39.4001,
               71.9944
+            ],
+            "content_bbox": [
+              6.02,
+              12.34,
+              70.43,
+              79.44
             ],
             "loop": true,
             "audio": null
@@ -989,6 +1109,12 @@
               39.4001,
               71.9944
             ],
+            "content_bbox": [
+              1.34,
+              13.74,
+              74.86,
+              79.44
+            ],
             "loop": true,
             "audio": null
           },
@@ -1003,6 +1129,12 @@
             "pet_anchor": [
               39.4001,
               71.9944
+            ],
+            "content_bbox": [
+              8.07,
+              12.34,
+              71.48,
+              79.44
             ],
             "loop": true,
             "audio": null
@@ -1019,6 +1151,12 @@
               39.4001,
               71.9944
             ],
+            "content_bbox": [
+              6.85,
+              4.49,
+              67.34,
+              79.44
+            ],
             "loop": true,
             "audio": null
           },
@@ -1033,6 +1171,12 @@
             "pet_anchor": [
               39.4001,
               71.9944
+            ],
+            "content_bbox": [
+              6.85,
+              4.49,
+              67.34,
+              79.44
             ],
             "loop": true,
             "audio": null
@@ -1127,7 +1271,7 @@
           ],
           "loop": false,
           "auto_end": true,
-          "return_facing": null,
+          "return_facing": "down",
           "audio": {
             "file": "nono-sounds/sounds/action_ball_s3.mp3",
             "loops": 1,

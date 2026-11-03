@@ -133,10 +133,19 @@ nono --check                            # 从应用侧校验
 
 - `scale`：以 `petAnchor` 为中心缩放（1.0 为原始）。
 - `offset`：在画布单位下的平移（正 y 向下）。
+- `frames`：只播放前 N 帧，用来裁掉源素材里重复或空白的尾巴。
 - 键是运行时动画 id：`form2/action/boot`、`form2/walk/down`、`form2/expr/happy`。
 
-当前修正值来自实测：形态 2 开机动画整体偏高 2.5 画布单位；玩魔方的宠物比待机大约
-1.21 倍（面罩宽度 30.7 vs 25.3），缩到 0.83 并再上移 2.4 后与待机重合。
+当前修正值来自逐帧实测：
+
+| 动画 | 问题 | 修正 |
+|---|---|---|
+| `form2/action/boot` | 结束位置比待机高 2.5 | `offset [0, 2.5]` |
+| `form2/action/cube` | 宠物大约 1.21 倍（面罩 30.7 vs 25.3） | `scale 0.83` + `offset [0,-2.4]` |
+| `form1/action/summon` | 结束比待机低 3.6 | `offset [0,-3.6]` |
+| `form2/action/summon` | 结束比待机低 6.2 | `offset [0,-6.2]` |
+| `form3/action/summon` | 结束低 1.3，且第 70 帧后整段空白 | `offset [0,-1.3]` + `frames 70` |
+| `form1/action/shutdown` | 第 100 帧起完整重复前 65 帧（看起来播两遍） | `frames 52`（约 2.08s，与音效等长） |
 
 ## 5. 渲染细节（ThorVG）
 

@@ -159,6 +159,12 @@ impl App {
             .clamp(screen_bounds);
         let now = Instant::now();
         self.state = PetState::new(&self.catalog, self.config.form, anchor, self.config.scale, dpi as f32, now);
+        self.bounds = self.compute_roam_bounds();
+        self.state.clamp_to(self.bounds);
+        tracing::debug!(
+            roam = ?(self.bounds.x, self.bounds.y, self.bounds.w, self.bounds.h),
+            "pet roaming bounds"
+        );
 
         #[cfg(target_os = "macos")]
         nono_platform::macos::set_accessory_activation_policy();
@@ -339,6 +345,40 @@ impl App {
         self.state.window_rect().intersect(self.screen_bounds)
     }
 
+    /// Largest extent of the pet's *silhouette* around its anchor, over all
+    /// eight walk directions (left, top, right, bottom, in canvas units).
+    fn pet_margins(&self) -> (f32, f32, f32, f32) {
+        let (mut left, mut top, mut right, mut bottom) = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
+        for dir in Direction::ALL {
+            let Ok(spec) = self.catalog.walk_spec(self.state.form, dir) else {
+                continue;
+            };
+            let Some(bb) = spec.content_bbox else { continue };
+            left = left.max(spec.pet_anchor.0 - bb.0);
+            top = top.max(spec.pet_anchor.1 - bb.1);
+            right = right.max(bb.2 - spec.pet_anchor.0);
+            bottom = bottom.max(bb.3 - spec.pet_anchor.1);
+        }
+        (left, top, right, bottom)
+    }
+
+    /// Screen rect the anchor may move in: the pet silhouette never leaves the
+    /// usable screen, even when dragged against an edge.
+    fn compute_roam_bounds(&self) -> Rect {
+        let (left, top, right, bottom) = self.pet_margins();
+        let s = self.state.scale * self.state.dpi;
+        let sb = self.screen_bounds;
+        let x0 = sb.x + left * s;
+        let y0 = sb.y + top * s;
+        let x1 = sb.right() - right * s;
+        let y1 = sb.bottom() - bottom * s;
+        if x1 <= x0 || y1 <= y0 {
+            sb
+        } else {
+            Rect::new(x0, y0, x1 - x0, y1 - y0)
+        }
+    }
+
     /// Copies a sub-rectangle of an RGBA frame (used when the window had to be
     /// clipped at a screen edge).
     fn crop_into(src: &[u8], src_w: u32, x: u32, y: u32, w: u32, h: u32, out: &mut Vec<u8>) {
@@ -353,6 +393,8 @@ impl App {
     /// Reloads the renderer at the current scale while keeping the animation
     /// phase (used for real scale-factor changes and menu zoom changes).
     fn reload_preserving_frame(&mut self, now: Instant) {
+        self.bounds = self.compute_roam_bounds();
+        self.state.clamp_to(self.bounds);
         let rect = self.visible_rect();
         let dpi = self.state.dpi;
         if let Some(window) = &self.window {
@@ -534,6 +576,8 @@ impl App {
             return;
         }
         self.config.form = form;
+        self.bounds = self.compute_roam_bounds();
+        self.state.clamp_to(self.bounds);
         self.sync_animation(now, false, "state-change");
         self.render_now(now);
         self.save_config();
@@ -681,6 +725,14 @@ impl ApplicationHandler<UserEvent> for App {
                             // window is clipped at a screen edge.
                             self.state.anchor.x += new_x - current.x as f32;
                             self.state.anchor.y += new_y - current.y as f32;
+                            // Hard stop at the usable screen: the silhouette must
+                            // never be cut off, even while the mouse keeps going.
+                            self.state.clamp_to(self.bounds);
+                            let rect = self.visible_rect();
+                            window.set_outer_position(PhysicalPosition::new(
+                                rect.x as i32,
+                                rect.y as i32,
+                            ));
                         }
                     }
                 } else {

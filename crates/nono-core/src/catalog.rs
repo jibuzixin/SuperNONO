@@ -91,16 +91,25 @@ pub struct AnimationSpec {
     pub return_facing: Option<Direction>,
     /// Rendering correction from `assets/tuning.json`.
     pub placement: Placement,
+    /// Optional playback length override (used to trim duplicate/empty tails).
+    pub play_frames: Option<u32>,
+    /// Content bounding box in canvas units (left, top, right, bottom).
+    pub content_bbox: Option<(f32, f32, f32, f32)>,
     /// Human-readable label (Chinese name or direction).
     pub label: String,
 }
 
 impl AnimationSpec {
+    /// Playback length, accounting for a tuning trim.
+    pub fn effective_frames(&self) -> u32 {
+        self.play_frames.unwrap_or(self.frames).max(1)
+    }
+
     pub fn duration_secs(&self) -> f32 {
         if self.fps <= 0.0 {
             0.0
         } else {
-            self.frames as f32 / self.fps
+            self.effective_frames() as f32 / self.fps
         }
     }
 
@@ -145,6 +154,8 @@ pub struct DirDef {
     pub fps: f32,
     pub pet_anchor: [f32; 2],
     #[serde(default)]
+    pub content_bbox: Option<[f32; 4]>,
+    #[serde(default)]
     pub audio: Option<AudioDef>,
 }
 
@@ -164,6 +175,8 @@ pub struct ActionDef {
     #[serde(default)]
     pub return_facing: Option<String>,
     #[serde(default)]
+    pub content_bbox: Option<[f32; 4]>,
+    #[serde(default)]
     pub audio: Option<AudioDef>,
 }
 
@@ -177,6 +190,8 @@ pub struct ExpressionDef {
     pub frames: u32,
     pub fps: f32,
     pub pet_anchor: [f32; 2],
+    #[serde(default)]
+    pub content_bbox: Option<[f32; 4]>,
     #[serde(default)]
     pub audio: Option<AudioDef>,
 }
@@ -220,6 +235,16 @@ struct PlacementDef {
     scale: f32,
     #[serde(default)]
     offset: [f32; 2],
+    /// Trim the playback after this many frames (duplicate/empty tails in the
+    /// source conversions).
+    #[serde(default)]
+    frames: Option<u32>,
+}
+
+#[derive(Debug, Clone, Copy, Default)]
+struct Tuning {
+    placement: Placement,
+    frames: Option<u32>,
 }
 
 fn one() -> f32 {
@@ -230,7 +255,7 @@ fn one() -> f32 {
 pub struct Catalog {
     root: PathBuf,
     raw: CatalogFile,
-    tuning: BTreeMap<String, Placement>,
+    tuning: BTreeMap<String, Tuning>,
 }
 
 impl Catalog {
@@ -341,7 +366,9 @@ impl Catalog {
             auto_end: false,
             audio: def.audio.as_ref().and_then(|a| self.audio(a)),
             return_facing: None,
-            placement: self.placement_for(&id),
+            placement: self.tuning_for(&id).placement,
+            play_frames: self.tuning_for(&id).frames,
+            content_bbox: def.content_bbox.map(|b| (b[0], b[1], b[2], b[3])),
             label: format!("走路·{key}"),
         })
     }
@@ -377,7 +404,9 @@ impl Catalog {
             auto_end: def.auto_end,
             audio: def.audio.as_ref().and_then(|a| self.audio(a)),
             return_facing,
-            placement: self.placement_for(&id),
+            placement: self.tuning_for(&id).placement,
+            play_frames: self.tuning_for(&id).frames,
+            content_bbox: def.content_bbox.map(|b| (b[0], b[1], b[2], b[3])),
             label: def.name.clone(),
         })
     }
@@ -407,7 +436,9 @@ impl Catalog {
             auto_end: true,
             audio: def.audio.as_ref().and_then(|a| self.audio(a)),
             return_facing: None,
-            placement: self.placement_for(&id),
+            placement: self.tuning_for(&id).placement,
+            play_frames: self.tuning_for(&id).frames,
+            content_bbox: def.content_bbox.map(|b| (b[0], b[1], b[2], b[3])),
             label: def.name.clone(),
         })
     }
@@ -434,7 +465,7 @@ impl Catalog {
     }
 
     /// Optional per-animation corrections (`assets/tuning.json`).
-    fn load_tuning(root: &Path) -> Result<BTreeMap<String, Placement>, CatalogError> {
+    fn load_tuning(root: &Path) -> Result<BTreeMap<String, Tuning>, CatalogError> {
         let path = root.join("tuning.json");
         if !path.is_file() {
             return Ok(BTreeMap::new());
@@ -461,16 +492,19 @@ impl Catalog {
             }
             tuning.insert(
                 id,
-                Placement {
-                    scale: def.scale,
-                    offset: (def.offset[0], def.offset[1]),
+                Tuning {
+                    placement: Placement {
+                        scale: def.scale,
+                        offset: (def.offset[0], def.offset[1]),
+                    },
+                    frames: def.frames,
                 },
             );
         }
         Ok(tuning)
     }
 
-    fn placement_for(&self, id: &str) -> Placement {
+    fn tuning_for(&self, id: &str) -> Tuning {
         self.tuning.get(id).copied().unwrap_or_default()
     }
 
@@ -579,6 +613,17 @@ mod tests {
         assert_eq!(
             catalog.walk_spec(2, Direction::Down).unwrap().placement,
             Placement::default()
+        );
+        // Form-1 shutdown has a duplicated second cycle in the source; it is
+        // trimmed to the first one (2.08 s, matching its sound).
+        assert_eq!(
+            catalog.action_spec(1, "shutdown").unwrap().effective_frames(),
+            52
+        );
+        // Form-3 summon has an empty tail; play only the visible part.
+        assert_eq!(
+            catalog.action_spec(3, "summon").unwrap().effective_frames(),
+            70
         );
     }
 

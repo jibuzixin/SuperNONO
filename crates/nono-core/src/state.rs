@@ -113,11 +113,11 @@ impl PetState {
     pub fn frame(&self, now: Instant) -> f32 {
         let elapsed = now.saturating_duration_since(self.anim_started).as_secs_f32();
         let raw = elapsed * self.anim.fps;
+        let frames = self.anim.effective_frames();
         if self.anim.loop_anim {
-            let frames = self.anim.frames.max(1) as f32;
-            raw % frames
+            raw % frames as f32
         } else {
-            raw.min((self.anim.frames.max(1) - 1) as f32)
+            raw.min((frames - 1) as f32)
         }
     }
 
@@ -446,6 +446,6 @@ mod tests {
         state.tick(&catalog, now);
         assert!(!state.after_finish(&catalog, now));
         assert_eq!(state.mode, Mode::Action);
-        assert_eq!(state.frame(now), (state.anim.frames - 1) as f32);
+        assert_eq!(state.frame(now), (state.anim.effective_frames() - 1) as f32);
     }
 }
