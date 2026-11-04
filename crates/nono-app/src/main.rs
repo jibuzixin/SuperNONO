@@ -1008,8 +1008,6 @@ enum Command {
     List { assets: PathBuf },
     RenderFrame { assets: PathBuf, form: u8, kind: String, slug: String, frame: f32, scale: f32, out: PathBuf, tint: Option<[u8; 3]> },
     RenderIcon { assets: PathBuf, out: PathBuf, size: u32, tint: Option<[u8; 3]> },
-    DumpFrames { assets: PathBuf, out: PathBuf, form: Option<u8>, scale: f32, count: usize },
-    DumpLayers { assets: PathBuf, out: PathBuf, form: Option<u8>, scale: f32, count: usize },
 }
 
 fn parse_args() -> Result<Command> {
@@ -1019,11 +1017,6 @@ fn parse_args() -> Result<Command> {
     let mut play: Option<String> = None;
     let mut play_delay = 0.0f32;
     let mut tint: Option<[u8; 3]> = None;
-    let mut dump: Option<PathBuf> = None;
-    let mut dump_layers: Option<PathBuf> = None;
-    let mut dump_form: Option<u8> = None;
-    let mut dump_scale = 2.0f32;
-    let mut dump_count = 10usize;
     let mut command: Option<Command> = None;
 
     let mut i = 0;
@@ -1056,26 +1049,6 @@ fn parse_args() -> Result<Command> {
                     .context("delay must be a number")?;
                 i += 1;
                 play = Some(args.get(i).context("--play-after needs an id")?.clone());
-            }
-            "--dump-frames" => {
-                i += 1;
-                dump = Some(PathBuf::from(args.get(i).context("--dump-frames needs a directory")?));
-            }
-            "--dump-layers" => {
-                i += 1;
-                dump_layers = Some(PathBuf::from(args.get(i).context("--dump-layers needs a directory")?));
-            }
-            "--form" => {
-                i += 1;
-                dump_form = Some(args.get(i).context("--form needs 1, 2 or 3")?.parse::<u8>()?);
-            }
-            "--scale" => {
-                i += 1;
-                dump_scale = args.get(i).context("--scale needs a number")?.parse::<f32>()?;
-            }
-            "--count" => {
-                i += 1;
-                dump_count = args.get(i).context("--count needs a number")?.parse::<usize>()?;
             }
             "--check" => command = Some(Command::Check { assets: assets.clone() }),
             "--list" => command = Some(Command::List { assets: assets.clone() }),
@@ -1110,12 +1083,6 @@ fn parse_args() -> Result<Command> {
         i += 1;
     }
 
-    if let Some(out) = dump {
-        command = Some(Command::DumpFrames { assets: assets.clone(), out, form: dump_form, scale: dump_scale, count: dump_count });
-    }
-    if let Some(out) = dump_layers {
-        command = Some(Command::DumpLayers { assets: assets.clone(), out, form: dump_form, scale: dump_scale, count: dump_count });
-    }
     Ok(command.unwrap_or(Command::Run { assets, trace, play, play_delay, tint }))
 }
 
@@ -1241,148 +1208,8 @@ fn main() -> Result<()> {
             init_tracing(false);
             render_icon(assets, out, size, tint)
         }
-        Command::DumpFrames { assets, out, form, scale, count } => {
-            init_tracing(false);
-            dump_frames(assets, out, form, scale, count)
-        }
-        Command::DumpLayers { assets, out, form, scale, count } => {
-            init_tracing(false);
-            dump_layers(assets, out, form, scale, count)
-        }
         Command::Run { assets, trace, play, play_delay, tint } => run(assets, trace, play, play_delay, tint),
     }
-}
-
-fn walk_into(specs: &mut Vec<nono_core::AnimationSpec>, catalog: &Catalog, form: u8) {
-    for dir in Direction::ALL {
-        if let Ok(spec) = catalog.walk_spec(form, dir) {
-            specs.push(spec);
-        }
-    }
-    for a in catalog.action_infos(form) {
-        if let Ok(spec) = catalog.action_spec(form, &a.slug) {
-            specs.push(spec);
-        }
-    }
-    for e in catalog.expression_infos(form) {
-        if let Ok(spec) = catalog.expression_spec(form, &e.slug) {
-            specs.push(spec);
-        }
-    }
-}
-
-fn dump_layers(assets: PathBuf, out: PathBuf, form: Option<u8>, scale: f32, count: usize) -> Result<()> {
-    let catalog = Catalog::load(&assets)?;
-    let mut renderer = Renderer::new()?;
-    let layers_dir = out.join("layers");
-    std::fs::create_dir_all(&layers_dir)?;
-    for f in catalog.forms() {
-        if let Some(want) = form {
-            if f.id != want {
-                continue;
-            }
-        }
-        let mut specs = Vec::new();
-        walk_into(&mut specs, &catalog, f.id);
-        for spec in specs {
-            let flat = spec.id.replace('/', "_");
-            let bytes = std::fs::read(&spec.file)?;
-            let mut root: serde_json::Value = serde_json::from_slice(&bytes)?;
-            let units = nono_render::parts::color_map(&mut root);
-            let temp = layers_dir.join(format!("_{flat}.tmp.json"));
-            std::fs::write(&temp, serde_json::to_vec(&root)?)?;
-            let mut temp_spec = spec.clone();
-            temp_spec.file = temp.clone();
-            let total = spec.effective_frames().max(1) as usize;
-            let want = count.max(1).min(total);
-            let dir = layers_dir.join(&flat);
-            std::fs::create_dir_all(&dir)?;
-            for j in 0..want {
-                let frame = ((j * total) / want) as f32;
-                renderer.render_png(&temp_spec, scale, frame, &dir.join(format!("{j:02}.png")))?;
-            }
-            let meta: Vec<serde_json::Value> = units
-                .iter()
-                .map(|u| {
-                    serde_json::json!({
-                        "layer": u.layer,
-                        "paths": u.paths,
-                        "color": u.color,
-                        "nm": u.name,
-                    })
-                })
-                .collect();
-            std::fs::write(
-                layers_dir.join(format!("{flat}.json")),
-                serde_json::to_vec_pretty(&serde_json::json!({ "units": meta }))?,
-            )?;
-            let _ = std::fs::remove_file(&temp);
-            println!("parts {} ({} units, {} frames)", spec.id, units.len(), want);
-        }
-    }
-    Ok(())
-}
-
-fn dump_frames(assets: PathBuf, out: PathBuf, form: Option<u8>, scale: f32, count: usize) -> Result<()> {
-    let catalog = Catalog::load(&assets)?;
-    let mut renderer = Renderer::new()?;
-    let frames_dir = out.join("frames");
-    std::fs::create_dir_all(&frames_dir)?;
-    let mut specs = Vec::new();
-    for f in catalog.forms() {
-        if let Some(want) = form {
-            if f.id != want {
-                continue;
-            }
-        }
-        for dir in Direction::ALL {
-            if let Ok(spec) = catalog.walk_spec(f.id, dir) {
-                specs.push(spec);
-            }
-        }
-        for a in catalog.action_infos(f.id) {
-            if let Ok(spec) = catalog.action_spec(f.id, &a.slug) {
-                specs.push(spec);
-            }
-        }
-        for e in catalog.expression_infos(f.id) {
-            if let Ok(spec) = catalog.expression_spec(f.id, &e.slug) {
-                specs.push(spec);
-            }
-        }
-    }
-    let mut entries = Vec::new();
-    for spec in specs {
-        let flat = spec.id.replace('/', "_");
-        let dir = frames_dir.join(&flat);
-        std::fs::create_dir_all(&dir)?;
-        let total = spec.effective_frames().max(1) as usize;
-        let want = count.max(1).min(total);
-        let mut files = Vec::new();
-        for j in 0..want {
-            let frame = ((j * total) / want) as f32;
-            let path = dir.join(format!("{j:02}.png"));
-            renderer.render_png(&spec, scale, frame, &path)?;
-            files.push(format!("frames/{flat}/{j:02}.png"));
-        }
-        let w = (spec.canvas.0 * scale).round() as u32;
-        let h = (spec.canvas.1 * scale).round() as u32;
-        let slug = spec.id.rsplit('/').next().unwrap_or("").to_string();
-        entries.push(serde_json::json!({
-            "id": spec.id,
-            "form": spec.form,
-            "kind": format!("{:?}", spec.kind).to_lowercase(),
-            "slug": slug,
-            "canvas": [spec.canvas.0, spec.canvas.1],
-            "frame_size": [w, h],
-            "frames": files,
-        }));
-        println!("dumped {} ({} frames)", spec.id, want);
-    }
-    let manifest = serde_json::json!({ "animations": entries });
-    std::fs::write(out.join("manifest.json"), serde_json::to_vec_pretty(&manifest)?)?;
-    println!("manifest: {}", out.join("manifest.json").display());
-    Ok(())
 }
 
 fn run(assets: PathBuf, trace: bool, play: Option<String>, play_delay: f32, tint: Option<[u8; 3]>) -> Result<()> {
