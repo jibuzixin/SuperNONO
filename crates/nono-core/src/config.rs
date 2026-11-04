@@ -97,8 +97,26 @@ impl Config {
     /// silently reset the running settings.
     pub fn load_strict(path: &Path) -> std::io::Result<Self> {
         let text = std::fs::read_to_string(path)?;
-        let mut config: Config = toml::from_str(&text)
-            .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))?;
+        Self::from_toml(&text)
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))
+    }
+
+    /// Parses a config document.
+    ///
+    /// Configs written before speed settings existed have no `move_speed` /
+    /// `follow_speed` / `idle_speed` keys.  For those only, keep the original
+    /// faster follow speed instead of letting a missing `Option` mean "use the
+    /// global speed".  Once any speed key is present, omitting `follow_speed`
+    /// or `idle_speed` means "follow the global speed" as documented.
+    pub fn from_toml(text: &str) -> Result<Self, toml::de::Error> {
+        let document: toml::Value = toml::from_str(text)?;
+        let has_speed = ["move_speed", "follow_speed", "idle_speed"]
+            .iter()
+            .any(|key| document.get(key).is_some());
+        let mut config: Config = toml::from_str(text)?;
+        if !has_speed {
+            config.follow_speed = speed::DEFAULT_FOLLOW;
+        }
         config.sanitize();
         Ok(config)
     }
@@ -221,8 +239,7 @@ mod tests {
         assert!(text.contains("trail_opacity = 0.35"), "{text}");
         assert!(text.contains("idle_speed = 120.0"), "{text}");
         assert!(!text.contains("follow_speed"), "None override must be omitted: {text}");
-        let mut back: Config = toml::from_str(&text).unwrap();
-        back.sanitize();
+        let back = Config::from_toml(&text).unwrap();
         assert_eq!(back.form, 2);
         assert_eq!(back.scale, config.scale);
         assert_eq!(back.anchor, config.anchor);
@@ -247,6 +264,28 @@ mod tests {
         config.idle_speed = None;
         assert!((config.effective_idle_speed() - 100.0).abs() < 1e-6);
         assert!((config.effective_follow_speed() - 100.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn speedless_legacy_config_keeps_the_original_follow_speed() {
+        let config = Config::from_toml("form = 1\nscale = 1.5\n").unwrap();
+        assert!((config.move_speed - 60.0).abs() < 1e-6);
+        assert_eq!(config.follow_speed, Some(140.0));
+        assert_eq!(config.idle_speed, None);
+        assert!((config.effective_follow_speed() - 140.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn once_a_speed_key_exists_omitted_overrides_mean_global() {
+        let config = Config::from_toml("form = 1\nmove_speed = 90.0\n").unwrap();
+        assert_eq!(config.follow_speed, None);
+        assert_eq!(config.idle_speed, None);
+        assert!((config.effective_follow_speed() - 90.0).abs() < 1e-6);
+        assert!((config.effective_idle_speed() - 90.0).abs() < 1e-6);
+
+        let config = Config::from_toml("form = 1\nidle_speed = 120.0\n").unwrap();
+        assert_eq!(config.follow_speed, None);
+        assert_eq!(config.idle_speed, Some(120.0));
     }
 
     #[test]

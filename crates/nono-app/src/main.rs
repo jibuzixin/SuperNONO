@@ -104,6 +104,9 @@ struct App {
     visible: bool,
     render_count: u64,
     render_time_sum_ms: f64,
+    /// 60 Hz cached trail presents, tracked separately from full renders.
+    cached_present_count: u64,
+    cached_present_sum_ms: f64,
     /// Debug/automation hook: an animation id to start right after setup.
     initial_play: Option<String>,
     /// Mouse-follow mode: when this expires, following stops.
@@ -174,6 +177,8 @@ impl App {
             scheduled_play: None,
             render_count: 0,
             render_time_sum_ms: 0.0,
+            cached_present_count: 0,
+            cached_present_sum_ms: 0.0,
         })
     }
 
@@ -311,7 +316,11 @@ impl App {
                 return;
             }
         }
-        self.apply_window_geometry();
+        // While a trail stage is active the window moves together with the
+        // recomposition in `present_now`, never on its own.
+        if self.trail_pad_px() == 0 {
+            self.apply_window_geometry();
+        }
 
         self.audio.stop();
         if self.state.mode == Mode::Action {
@@ -346,7 +355,31 @@ impl App {
             tracing::warn!(%err, frame, "render failed");
             return;
         }
+        let (width, height) = self.present_now(now, true);
 
+        self.last_frame_key = frame_key(frame);
+        self.dirty = false;
+        self.last_render_at = started;
+        self.render_count += 1;
+        let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
+        self.render_time_sum_ms += elapsed_ms;
+        if self.render_count % 25 == 0 {
+            tracing::debug!(
+                frame,
+                size = ?(width, height),
+                avg_ms = self.render_time_sum_ms / 25.0,
+                "render stats"
+            );
+            self.render_time_sum_ms = 0.0;
+        }
+    }
+
+    /// Rebuilds the trail stage at the current anchor and presents it.
+    ///
+    /// `advance_history` allows a new afterimage snapshot to be spawned; the
+    /// cached 60 Hz presentations during a walk pass `false` so the sampling
+    /// cadence stays tied to the 25 fps animation.
+    fn present_now(&mut self, now: Instant, advance_history: bool) -> (u32, u32) {
         let walking = self.state.mode == Mode::Walk;
         let lifetime = Duration::from_millis(self.config.trail_lifetime_ms as u64);
         if !self.config.trail_enabled {
@@ -442,7 +475,7 @@ impl App {
         }
 
         // Spawn a new afterimage at the configured interval while walking.
-        if self.config.trail_enabled && walking {
+        if advance_history && self.config.trail_enabled && walking {
             let interval = Duration::from_millis(self.config.trail_interval_ms as u64);
             let due = self
                 .trail_samples
@@ -471,22 +504,23 @@ impl App {
             }
         }
 
-        let width = crop_w;
-        let height = crop_h;
-        self.last_frame_key = frame_key(frame);
-        self.dirty = false;
-        self.last_render_at = started;
-        self.render_count += 1;
-        let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
-        self.render_time_sum_ms += elapsed_ms;
-        if self.render_count % 25 == 0 {
+        (crop_w, crop_h)
+    }
+
+    /// Recomposites the cached frame at the current anchor between animation
+    /// frames.  Without this, the window moves at ~60 Hz while the afterimages
+    /// are only re-laid-out at 25 fps, which makes a long trail shiver.
+    fn present_cached(&mut self, now: Instant) {
+        let started = Instant::now();
+        self.present_now(now, false);
+        self.cached_present_count += 1;
+        self.cached_present_sum_ms += started.elapsed().as_secs_f64() * 1000.0;
+        if self.cached_present_count % 120 == 0 {
             tracing::debug!(
-                frame,
-                size = ?(width, height),
-                avg_ms = self.render_time_sum_ms / 25.0,
-                "render stats"
+                avg_ms = self.cached_present_sum_ms / 120.0,
+                "cached trail present stats"
             );
-            self.render_time_sum_ms = 0.0;
+            self.cached_present_sum_ms = 0.0;
         }
     }
 
@@ -583,6 +617,11 @@ impl App {
 
     fn position_window(&self) {
         let Some(window) = &self.window else { return };
+        // With the trail stage, the window must only move together with a
+        // recomposited trail; moving it independently makes ghosts shiver.
+        if self.trail_pad_px() > 0 {
+            return;
+        }
         let rect = self.visible_rect();
         window.set_outer_position(PhysicalPosition::new(rect.x as i32, rect.y as i32));
     }
@@ -1535,6 +1574,17 @@ impl ApplicationHandler<UserEvent> for App {
             self.sync_animation(now, false, "state-change");
         }
         self.sync_animation(now, false, "state-change");
+
+        // The window moved on this tick.  With a trail stage, recomposite at
+        // tick rate so the ghosts stay pinned to their historical positions
+        // instead of riding along with the window between 25 fps frames.
+        let trail_walking = self.config.trail_enabled
+            && self.state.mode == Mode::Walk
+            && tick.moved
+            && !self.trail_samples.is_empty();
+        if trail_walking && !self.dirty && !self.frame_due(now) {
+            self.present_cached(now);
+        }
 
         let idle = self.state.mode == Mode::Idle;
         let animating = self.state.is_animating() && (!idle || self.config.idle_animation);
