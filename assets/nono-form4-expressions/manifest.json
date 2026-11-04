@@ -16,8 +16,8 @@
       "name": "得意",
       "file": "nono4_exp_smug.json",
       "sourceFile": "exp/1_4.swf",
-      "bytes": 299316,
-      "sha256": "017a47f427875f6aa698e6a6e01b6da02e4018c695fb8f150d0b539c8a27e6b2",
+      "bytes": 297123,
+      "sha256": "a3ef363cdff654998cd7b537ac4c1030c46a5b2fb2e10ad13cc3af96bba704ec",
       "frames": 64,
       "canvas": [
         189,
@@ -57,8 +57,8 @@
       "name": "生气",
       "file": "nono4_exp_angry.json",
       "sourceFile": "exp/2_4.swf",
-      "bytes": 251111,
-      "sha256": "159ba124368e736674e2173d60431940e3ba643c629953057af26ff764cf7c02",
+      "bytes": 249535,
+      "sha256": "2cec53b92d5e85a8d128721652fe0892e396e42472fa85d02c4304a5472d9d92",
       "frames": 63,
       "canvas": [
         189,
@@ -98,8 +98,8 @@
       "name": "头晕",
       "file": "nono4_exp_dizzy.json",
       "sourceFile": "exp/3_4.swf",
-      "bytes": 312223,
-      "sha256": "6d7d0053ceb174262e3e5e52ea0df4cbfe35acc766af4ac5884a268316f94348",
+      "bytes": 309193,
+      "sha256": "a21f7e1151f611d642356eb8c6b8e6fb1eea2e72b5b11c91eb3c38bb5f778a27",
       "frames": 66,
       "canvas": [
         189,
@@ -139,8 +139,8 @@
       "name": "玩乐",
       "file": "nono4_exp_play.json",
       "sourceFile": "exp/4_4.swf",
-      "bytes": 261142,
-      "sha256": "712b76749558d5f698ba4fdff741af268e90eed9a10a42bcd88e73b5185120b2",
+      "bytes": 258782,
+      "sha256": "27ac8003c41c24202adbc093579d9a27db391c5618834da03656c14972e26694",
       "frames": 63,
       "canvas": [
         189,

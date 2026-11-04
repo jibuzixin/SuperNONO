@@ -150,8 +150,8 @@
       "slug": "ball",
       "name": "玩球",
       "file": "nono1_action_ball.json",
-      "bytes": 653264,
-      "sha256": "34b289bff8a6eeaf1a5275fb530d83e46a4380798e53f5a005fffd819e1aec39",
+      "bytes": 653210,
+      "sha256": "7a0b32a56724ddfa6dff5ffc111a51443a06e728b48a5198b676307461eca5c1",
       "frames": 206,
       "canvas": [
         526,
