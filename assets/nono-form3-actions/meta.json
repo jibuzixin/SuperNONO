@@ -19,8 +19,8 @@
       "name": "开机",
       "file": "nono3_action_boot.json",
       "frames": 84,
-      "layers": 50,
-      "bytes": 142002,
+      "layers": 58,
+      "bytes": 162616,
       "crop": [
         225.6,
         104.7
@@ -40,8 +40,8 @@
       "name": "关机",
       "file": "nono3_action_shutdown.json",
       "frames": 63,
-      "layers": 41,
-      "bytes": 74848,
+      "layers": 49,
+      "bytes": 95509,
       "crop": [
         236.05,
         128.45

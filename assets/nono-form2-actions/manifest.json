@@ -15,8 +15,8 @@
       "slug": "charge",
       "name": "充电",
       "file": "nono2_action_charge.json",
-      "bytes": 18519,
-      "sha256": "8fcf35e83a610c26ad9cab5334333a47adee14725c8ec73b8d3addb9c3bff03b",
+      "bytes": 20372,
+      "sha256": "b17e7d37da6b82850de9479d84860ff4bf258cc36ee1c2fcd53fe71a5d294e5f",
       "frames": 1,
       "canvas": [
         76,
@@ -60,8 +60,8 @@
       "slug": "boot",
       "name": "开机",
       "file": "nono2_action_boot.json",
-      "bytes": 256680,
-      "sha256": "4de70557c37038786f210f627179f5e2c3e9b940740745f05e4fbb02a6893117",
+      "bytes": 268278,
+      "sha256": "d2a7f774039a3f2ade57c5da14bdb232174973dab96c5cbd22268aadd0f0f81b",
       "frames": 91,
       "canvas": [
         76,
@@ -105,8 +105,8 @@
       "slug": "shutdown",
       "name": "关机",
       "file": "nono2_action_shutdown.json",
-      "bytes": 73795,
-      "sha256": "29d2f4c63a62836cf2e39e1f00315e17721c26086f2d7b4fb207efde1c380c94",
+      "bytes": 78982,
+      "sha256": "149e711ebd5989d475e599ed59798610706625e3a5e00673405313f95ee81ae7",
       "frames": 61,
       "canvas": [
         76,
@@ -150,8 +150,8 @@
       "slug": "ball",
       "name": "玩球",
       "file": "nono2_action_ball.json",
-      "bytes": 547693,
-      "sha256": "4ca805a54d2b90274d39c9b2c11160aab8ef46e499862c725c90207d6821a770",
+      "bytes": 564534,
+      "sha256": "33b505e632e4b2050a8fc7443a8d97c5d65cf4828240f6170a737c84f5a45914",
       "frames": 124,
       "canvas": [
         877,
@@ -195,8 +195,8 @@
       "slug": "battery",
       "name": "吃电池",
       "file": "nono2_action_battery.json",
-      "bytes": 2145446,
-      "sha256": "07b1d89a06dc332fd3ecfd96b454d7c6adce0a050f0a5e87d686f5e2483bf929",
+      "bytes": 2164029,
+      "sha256": "ce463a541607e37bfcee1f7ea48d51c837d169b3d896f1e72873eb7aac94ab55",
       "frames": 219,
       "canvas": [
         314,
@@ -240,8 +240,8 @@
       "slug": "summon",
       "name": "召唤",
       "file": "nono2_action_summon.json",
-      "bytes": 2299467,
-      "sha256": "5e9c812409a522dce9e605e7eb1fd9680422dabfc44c2919157306afdd488de2",
+      "bytes": 2355130,
+      "sha256": "8a59dfca46fc590f184a102f302cdc2de52c0dd59febc137a0bab4beea6b7cc7",
       "frames": 149,
       "canvas": [
         346,
@@ -285,14 +285,14 @@
       "slug": "cube",
       "name": "玩魔方",
       "file": "nono2_action_cube.json",
-      "bytes": 4999553,
-      "sha256": "9a9406bfb62732825f9b06157c9e9ede7a3c3821108fbd4ef09918dcce864483",
+      "bytes": 13722690,
+      "sha256": "7161848fec37f2c450f3f46397bc8bb0a5b1cb4cb10596f4ae86553e77b68110",
       "frames": 250,
       "canvas": [
         247,
         252
       ],
-      "layers": 382,
+      "layers": 407,
       "crop": [
         127.9,
         75.65

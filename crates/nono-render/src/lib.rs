@@ -182,7 +182,7 @@ impl Renderer {
             // Recolour the body/ear-root layers in a copy of the Lottie JSON;
             // the file on disk is untouched.
             let bytes = std::fs::read(&spec.file)?;
-            let tinted = tint_lottie_json(&bytes, tint, spec.pet_anchor, spec.form)?;
+            let tinted = tint_lottie_json(&bytes, tint)?;
             anim.load_data(&tinted)?;
         } else {
             anim.load_file(
@@ -514,298 +514,86 @@ fn blend_layer(
     }
 }
 
-/// True when a colour is a mid-tone body shade (grey/beige), used to identify
-/// the character's body layers.  Pure white is not a shade.
-fn is_body_shade(c: (f32, f32, f32)) -> bool {
-    let (r, g, b) = c;
-    let max = r.max(g).max(b);
-    let min = r.min(g).min(b);
-    if !(0.5..=0.94).contains(&max) || max - min > 0.09 {
-        return false;
-    }
-    b <= r + 0.03
-}
-
-/// Colour that may be recoloured inside a body layer: white, neutral grey or
-/// warm beige/cream shading.  Greys become a darker shade of the tint; bluish
-/// greys, cyan and black stay untouched.
-fn is_tintable(c: (f32, f32, f32), blue_ok: bool) -> bool {
-    let (r, g, b) = c;
-    let max = r.max(g).max(b);
-    let min = r.min(g).min(b);
-    max >= 0.5 && max - min <= 0.09 && b <= r + if blue_ok { 0.06 } else { 0.015 }
-}
-
-fn opacity_static(layer: &serde_json::Value) -> bool {
-    layer
-        .get("ks")
-        .and_then(|k| k.get("o"))
-        .and_then(|o| o.get("a"))
-        .and_then(|a| a.as_i64())
-        .unwrap_or(0)
-        == 0
-}
-
-struct LayerColors {
-    has_white: bool,
-    has_shade: bool,
-    has_gray: bool,
-    has_saturated: bool,
-}
-
-fn layer_colors(node: &serde_json::Value) -> LayerColors {
-    let mut out = LayerColors { has_white: false, has_shade: false, has_gray: false, has_saturated: false };
-    fn walk(node: &serde_json::Value, out: &mut LayerColors) {
-        match node {
-            serde_json::Value::Object(map) => {
-                if matches!(map.get("ty").and_then(|v| v.as_str()), Some("fl") | Some("st")) {
-                    if let Some(c) = map.get("c").and_then(|v| v.as_object()) {
-                        if c.get("a").and_then(|v| v.as_i64()).unwrap_or(0) == 0 {
-                            if let Some(k) = c.get("k").and_then(|v| v.as_array()) {
-                                if k.len() >= 3 {
-                                    let r = k[0].as_f64().unwrap_or(0.0) as f32;
-                                    let g = k[1].as_f64().unwrap_or(0.0) as f32;
-                                    let b = k[2].as_f64().unwrap_or(0.0) as f32;
-                                    let max = r.max(g).max(b);
-                                    let min = r.min(g).min(b);
-                                    if min >= 0.985 {
-                                        out.has_white = true;
-                                    }
-                                    if is_body_shade((r, g, b)) {
-                                        out.has_shade = true;
-                                    }
-                                    if (0.5..=0.95).contains(&max) && max - min <= 0.09 {
-                                        out.has_gray = true;
-                                    }
-                                    if max - min > 0.15 && max > 0.1 {
-                                        out.has_saturated = true;
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                for v in map.values() {
-                    walk(v, out);
-                }
-            }
-            serde_json::Value::Array(arr) => {
-                for v in arr {
-                    walk(v, out);
-                }
-            }
-            _ => {}
-        }
-    }
-    walk(node, &mut out);
-    out
-}
-
-/// The white ball and the ear roots contain pure white *and* the body's neutral
-/// shading.  White-only layers (hands/fins, ear glows, sweat, bubbles, props)
-/// are not body layers.
-fn is_body_layer(layer: &serde_json::Value) -> bool {
-    let c = layer_colors(layer);
-    c.has_white && c.has_shade && !c.has_saturated
-}
-
-/// A plain-white body layer: large (both shape bounds > 18 units), no shading
-/// and no saturated colours.  This catches parts of the body that are drawn as
-/// pure white (e.g. form-3's helmet) without touching the small white flashes on
-/// the ears/hands.
-fn is_large_white_layer(layer: &serde_json::Value) -> bool {
-    let c = layer_colors(layer);
-    if !c.has_white || c.has_shade || c.has_saturated {
-        return false;
-    }
-    // Flickering white flashes on the ears/hands animate their opacity; the
-    // body/helmet does not.  Only static-opacity layers are body candidates.
-    if !opacity_static(layer) {
-        return false;
-    }
-    let Some((w, h)) = shape_bounds(layer) else { return false };
-    w > 18.0 && h > 18.0
-}
-
-fn shape_bounds(layer: &serde_json::Value) -> Option<(f32, f32)> {
-    fn walk(node: &serde_json::Value, b: &mut (f64, f64, f64, f64)) {
-        match node {
-            serde_json::Value::Object(map) => {
-                if map.get("ty").and_then(|v| v.as_str()) == Some("sh") {
-                    if let Some(k) = map.get("ks").and_then(|v| v.get("k")) {
-                        if let Some(vs) = k.get("v").and_then(|v| v.as_array()) {
-                            for p in vs {
-                                if let Some(a) = p.as_array() {
-                                    if let (Some(x), Some(y)) = (a.first().and_then(|v| v.as_f64()), a.get(1).and_then(|v| v.as_f64())) {
-                                        b.0 = b.0.min(x);
-                                        b.1 = b.1.min(y);
-                                        b.2 = b.2.max(x);
-                                        b.3 = b.3.max(y);
-                                    }
-                                }
-                            }
-                        }
-                    }
-                }
-                for v in map.values() {
-                    walk(v, b);
-                }
-            }
-            serde_json::Value::Array(arr) => {
-                for v in arr {
-                    walk(v, b);
-                }
-            }
-            _ => {}
-        }
-    }
-    let mut b = (f64::MAX, f64::MAX, f64::MIN, f64::MIN);
-    walk(layer, &mut b);
-    if b.0 > b.2 {
-        None
-    } else {
-        Some(((b.2 - b.0) as f32, (b.3 - b.1) as f32))
-    }
-}
-
-fn layer_position(layer: &serde_json::Value) -> Option<(f32, f32)> {
-    let p = layer.get("ks")?.get("p")?;
-    let k = p.get("k")?;
-    let values = if let Some(arr) = k.as_array() {
-        arr
-    } else {
-        return None;
-    };
-    let pair = if values.len() == 2 && values.iter().all(|v| v.is_number()) {
-        values
-    } else if let Some(first) = values.first().and_then(|v| v.as_object()) {
-        first.get("s").and_then(|v| v.as_array())?
-    } else {
-        return None;
-    };
-    Some((pair.first()?.as_f64()? as f32, pair.get(1)?.as_f64()? as f32))
-}
-
-/// Recolours the body and ear-root layers of a Lottie document.
+/// Recolours every fill tagged with `nono.dye` in a Lottie document.
 ///
-/// Eligible layers:
-/// - layers that contain pure white plus the body's neutral/beige shading
-///   (the ball shell, ear roots, their grey shading -> darker tint);
-/// - large plain-white layers near the body centre (parts of the body drawn
-///   without shading, e.g. form-3's helmet).
-///
-/// Small white-only layers (the white flashes on cyan ears/hands, sweat drops,
-/// eye highlights, bubbles, props) and saturated layers stay untouched.
-fn tint_lottie_json(
-    bytes: &[u8],
-    tint: [u8; 3],
-    anchor: (f32, f32),
-    form: u8,
-) -> Result<Vec<u8>, serde_json::Error> {
+/// - `solid`: the body / ear-root white.  Static fills become the exact tint;
+///   colour-keyframed fills keep their brightness animation and are tinted
+///   (a fade stays a fade in the selected colour).
+/// - `shade`: the body's grey shading; tinted by its original brightness so the
+///   shading levels stay distinct (and darker than the body).
+/// - untagged fills (accent/eye/prop/effect/other) are never touched.
+fn tint_lottie_json(bytes: &[u8], tint: [u8; 3]) -> Result<Vec<u8>, serde_json::Error> {
     let mut root: serde_json::Value = serde_json::from_slice(bytes)?;
-    let Some(layers) = root.get_mut("layers").and_then(|v| v.as_array_mut()) else {
-        return Ok(bytes.to_vec());
-    };
-    // Form 2 gets a few conservative extra rules (see below); form 1/3 keep the
-    // plain body-layer rule.
-    let form2 = form == 2;
-    let blue_ok = form2;
-    let body: Vec<bool> = layers.iter().map(is_body_layer).collect();
-    let body_positions: Vec<(f32, f32)> = layers
-        .iter()
-        .zip(&body)
-        .filter(|(_, b)| **b)
-        .filter_map(|(l, _)| layer_position(l))
-        .collect();
-    // Form 2: the body sits just above the feet anchor; this is much more
-    // reliable than averaging transform origins (flame/effects have far ones).
-    let center = if form2 {
-        (anchor.0, anchor.1 - 16.0)
-    } else if body_positions.is_empty() {
-        (anchor.0, anchor.1 - 35.0)
-    } else {
-        let n = body_positions.len() as f32;
-        (
-            body_positions.iter().map(|p| p.0).sum::<f32>() / n,
-            body_positions.iter().map(|p| p.1).sum::<f32>() / n,
-        )
-    };
-    let near = |layer: &serde_json::Value, max: f32| -> bool {
-        layer_position(layer)
-            .map(|(x, y)| ((x - center.0).powi(2) + (y - center.1).powi(2)).sqrt() <= max)
-            .unwrap_or(false)
-    };
-    let any_body = body.iter().any(|b| *b);
-    for (i, layer) in layers.iter_mut().enumerate() {
-        let mut keep = body[i];
-        if form2 {
-            if !keep {
-                let c = layer_colors(layer);
-                // Narrow white ring (e.g. the white ring around the body in
-                // side/up walk frames) and the normal large plain-white body
-                // parts.  Flat fin bars (34x18) are deliberately excluded.
-                if c.has_white && !c.has_shade && !c.has_saturated && opacity_static(layer) {
-                    if let Some((w, h)) = shape_bounds(layer) {
-                        let ring = w < 18.0 && h >= 18.0;
-                        let body_part = w >= 18.0 && h > 18.0;
-                        keep = (ring || body_part) && near(layer, 32.0);
-                    }
-                }
-                // Grey/blue-grey body details (the two grey ovals on the back of
-                // form 2) become a darker shade of the tint.
-                if !keep && !c.has_white && !c.has_saturated && c.has_gray && opacity_static(layer) {
-                    keep = near(layer, 32.0);
-                }
-            }
-        } else if !keep && is_large_white_layer(layer) {
-            keep = near(layer, 30.0);
-        }
-        if !any_body && !keep && !form2 {
-            // No shaded body layer at all (some walk directions): fall back to
-            // the large plain-white layers near the body.
-            keep = is_large_white_layer(layer) && near(layer, 30.0);
-        }
-        if !keep {
-            continue;
-        }
-        tint_layer(layer, tint, blue_ok);
-    }
+    walk_dye(&mut root, tint);
     serde_json::to_vec(&root)
 }
 
-fn tint_layer(layer: &mut serde_json::Value, tint: [u8; 3], blue_ok: bool) {
-    match layer {
+fn walk_dye(node: &mut serde_json::Value, tint: [u8; 3]) {
+    match node {
         serde_json::Value::Object(map) => {
-            if matches!(map.get("ty").and_then(|v| v.as_str()), Some("fl") | Some("st")) {
-                if let Some(c) = map.get_mut("c").and_then(|v| v.as_object_mut()) {
-                    if c.get("a").and_then(|v| v.as_i64()).unwrap_or(0) == 0 {
-                        if let Some(k) = c.get_mut("k").and_then(|v| v.as_array_mut()) {
-                            if k.len() >= 3 {
-                                let r = k[0].as_f64().unwrap_or(0.0) as f32;
-                                let g = k[1].as_f64().unwrap_or(0.0) as f32;
-                                let b = k[2].as_f64().unwrap_or(0.0) as f32;
-                                if is_tintable((r, g, b), blue_ok) {
-                                    let brightness = r.max(g).max(b);
-                                    k[0] = serde_json::json!(tint[0] as f32 / 255.0 * brightness);
-                                    k[1] = serde_json::json!(tint[1] as f32 / 255.0 * brightness);
-                                    k[2] = serde_json::json!(tint[2] as f32 / 255.0 * brightness);
-                                }
-                            }
+            let is_fill = matches!(map.get("ty").and_then(|v| v.as_str()), Some("fl") | Some("st"));
+            let dye = map
+                .get("nono")
+                .and_then(|v| v.as_object())
+                .and_then(|n| n.get("dye"))
+                .and_then(|v| v.as_str())
+                .map(str::to_owned);
+            if is_fill {
+                if let Some(dye) = dye.as_deref() {
+                    if let Some(c) = map.get_mut("c").and_then(|v| v.as_object_mut()) {
+                        let animated = c.get("a").and_then(|v| v.as_i64()).unwrap_or(0) == 1;
+                        if let Some(k) = c.get_mut("k") {
+                            recolor_color_field(k, tint, dye, animated);
                         }
                     }
                 }
             }
             for v in map.values_mut() {
-                tint_layer(v, tint, blue_ok);
+                walk_dye(v, tint);
             }
         }
         serde_json::Value::Array(arr) => {
             for v in arr.iter_mut() {
-                tint_layer(v, tint, blue_ok);
+                walk_dye(v, tint);
             }
         }
         _ => {}
     }
+}
+
+fn recolor_color_field(k: &mut serde_json::Value, tint: [u8; 3], dye: &str, animated: bool) {
+    match k {
+        serde_json::Value::Array(arr) => {
+            if arr.len() >= 3 && arr.iter().take(3).all(|v| v.is_number()) {
+                recolor_rgb(arr, tint, dye, animated);
+            } else {
+                for item in arr.iter_mut() {
+                    recolor_color_field(item, tint, dye, animated);
+                }
+            }
+        }
+        serde_json::Value::Object(map) => {
+            for key in ["s", "e"] {
+                if let Some(v) = map.get_mut(key) {
+                    recolor_color_field(v, tint, dye, animated);
+                }
+            }
+        }
+        _ => {}
+    }
+}
+
+fn recolor_rgb(components: &mut [serde_json::Value], tint: [u8; 3], dye: &str, animated: bool) {
+    let r = components[0].as_f64().unwrap_or(1.0) as f32;
+    let g = components[1].as_f64().unwrap_or(1.0) as f32;
+    let b = components[2].as_f64().unwrap_or(1.0) as f32;
+    let brightness = r.max(g).max(b).clamp(0.0, 1.0);
+    // A static solid fill is exactly the chosen colour; everything else keeps
+    // its original brightness so the shading and keyframed fades survive.
+    let factor = if dye == "solid" && !animated { 1.0 } else { brightness };
+    components[0] = serde_json::json!(tint[0] as f32 / 255.0 * factor);
+    components[1] = serde_json::json!(tint[1] as f32 / 255.0 * factor);
+    components[2] = serde_json::json!(tint[2] as f32 / 255.0 * factor);
 }
 
 #[cfg(test)]
@@ -899,7 +687,7 @@ mod tests {
     }
 
     #[test]
-    fn tint_skips_effect_layers() {
+    fn tint_uses_nono_dye_tags() {
         let root = assets_root();
         let surprise_path = root.join("nono-form1-expressions/nono1_exp_surprise.json");
         if !surprise_path.is_file() {
@@ -907,21 +695,50 @@ mod tests {
         }
         let bytes = std::fs::read(&surprise_path).unwrap();
         let before: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-        let tinted = tint_lottie_json(&bytes, [255, 0, 0], (0.0, 0.0), 1).unwrap();
+        let tinted = tint_lottie_json(&bytes, [255, 0, 0]).unwrap();
         let after: serde_json::Value = serde_json::from_slice(&tinted).unwrap();
-        // Layer 0 is a white-only sweat drop; layer 45 is the white/grey shell.
-        assert_eq!(before["layers"][0], after["layers"][0], "sweat must stay white");
-        assert_ne!(before["layers"][45], after["layers"][45], "body must be tinted");
-
-        // The cube's own white faces are not body layers either.
-        let cube_path = root.join("nono-form1-actions/nono1_action_cube.json");
-        if cube_path.is_file() {
-            let bytes = std::fs::read(&cube_path).unwrap();
-            let tinted = tint_lottie_json(&bytes, [255, 0, 0], (0.0, 0.0), 1).unwrap();
-            let before: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
-            let after: serde_json::Value = serde_json::from_slice(&tinted).unwrap();
-            assert_eq!(before["layers"][0], after["layers"][0], "prop layers must stay untouched");
+        fn first_static_fill(node: &serde_json::Value, dye: Option<&str>) -> Option<Vec<f64>> {
+            match node {
+                serde_json::Value::Object(map) => {
+                    let is_fill = matches!(map.get("ty").and_then(|v| v.as_str()), Some("fl") | Some("st"));
+                    if is_fill {
+                        let tag = map
+                            .get("nono")
+                            .and_then(|v| v.as_object())
+                            .and_then(|n| n.get("dye"))
+                            .and_then(|v| v.as_str());
+                        let c = map.get("c").and_then(|v| v.as_object());
+                        let static_color = c.and_then(|c| if c.get("a").and_then(|v| v.as_i64()).unwrap_or(0) == 0 { c.get("k") } else { None });
+                        if let Some(k) = static_color.and_then(|v| v.as_array()) {
+                            if k.len() >= 3 && tag == dye {
+                                return Some(k.iter().take(3).filter_map(|v| v.as_f64()).collect());
+                            }
+                        }
+                    }
+                    for v in map.values() {
+                        if let Some(c) = first_static_fill(v, dye) {
+                            return Some(c);
+                        }
+                    }
+                    None
+                }
+                serde_json::Value::Array(arr) => {
+                    for v in arr {
+                        if let Some(c) = first_static_fill(v, dye) {
+                            return Some(c);
+                        }
+                    }
+                    None
+                }
+                _ => None,
+            }
         }
+        let solid_before = first_static_fill(&before, Some("solid")).expect("a solid-tagged fill");
+        let solid_after = first_static_fill(&after, Some("solid")).expect("a solid-tagged fill");
+        assert_eq!(solid_after, vec![1.0, 0.0, 0.0], "solid fills become the exact tint");
+        let untagged_before = first_static_fill(&before, None).expect("an untagged fill");
+        let untagged_after = first_static_fill(&after, None).expect("an untagged fill");
+        assert_eq!(untagged_before, untagged_after, "untagged fills must not be touched");
     }
 
     #[test]

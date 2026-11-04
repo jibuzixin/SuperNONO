@@ -9,8 +9,8 @@
     {
       "dir": "down",
       "file": "nono3_down.json",
-      "bytes": 105523,
-      "sha256": "1d271d9050f83625dd41a57fd045b40728fb21cc97140da04c741f4c12e4ffd9",
+      "bytes": 109235,
+      "sha256": "98107fcdc291a29b33995edd26a1a90c71f663f7692d3cc68bf5c05051878edb",
       "frames": 16,
       "canvas": [
         77,
@@ -39,8 +39,8 @@
     {
       "dir": "leftdown",
       "file": "nono3_leftdown.json",
-      "bytes": 138846,
-      "sha256": "7db81e43654110b365eafc19bf2e78fbad17b872b62733088c2d29a61ee81a07",
+      "bytes": 145859,
+      "sha256": "6ffaff09f586dc844b0d405979a83d5a667191b5458fa8f52de66d5ac4480271",
       "frames": 16,
       "canvas": [
         77,
@@ -69,8 +69,8 @@
     {
       "dir": "left",
       "file": "nono3_left.json",
-      "bytes": 138842,
-      "sha256": "d1604f733f1be30985fee0f51fabb228422174db43f720fdb392f03d899180c2",
+      "bytes": 145851,
+      "sha256": "772f720e76051e5ea50289fbca69fdbb5a5ca6803f58f6cf88613426cae6b916",
       "frames": 16,
       "canvas": [
         77,
@@ -99,8 +99,8 @@
     {
       "dir": "leftup",
       "file": "nono3_leftup.json",
-      "bytes": 122022,
-      "sha256": "aebf11db12c53ed84a30a3f07d45ac9815eb0d395fb79343d71eac13584a26ef",
+      "bytes": 132134,
+      "sha256": "0f673ac81c62ce4270b64b46a32f8615ce93dd77098eb2944db4ce89a8263d80",
       "frames": 16,
       "canvas": [
         77,
@@ -129,8 +129,8 @@
     {
       "dir": "up",
       "file": "nono3_up.json",
-      "bytes": 66695,
-      "sha256": "b8966b0a9744d87106d79d2f2b6565551444768ab6198efb84ab6c3d63b6c909",
+      "bytes": 69657,
+      "sha256": "de41537f4cea76e403806e151bdb4a3cec2f915a07dd886d50f751162e1e3a9d",
       "frames": 16,
       "canvas": [
         77,
@@ -159,8 +159,8 @@
     {
       "dir": "rightup",
       "file": "nono3_rightup.json",
-      "bytes": 121819,
-      "sha256": "380bc6e184be025092fd3579432cc9e9daa40bb85260ddcd0a7c5bef1b1bc6e7",
+      "bytes": 131932,
+      "sha256": "95e643847ff3bc2e001ad12efcb7a52c20511a22becef7f1abd16650d60d1ca9",
       "frames": 16,
       "canvas": [
         77,
@@ -189,8 +189,8 @@
     {
       "dir": "right",
       "file": "nono3_right.json",
-      "bytes": 138112,
-      "sha256": "14b83226f053202ae7359aee8f6d491050243cd5360795794ec0539f2d137207",
+      "bytes": 145122,
+      "sha256": "231f911bbe20cf02d8cb74d7cdfcdea3a862312887cc6138e69c225a9fbb593a",
       "frames": 16,
       "canvas": [
         77,
@@ -219,8 +219,8 @@
     {
       "dir": "rightdown",
       "file": "nono3_rightdown.json",
-      "bytes": 138116,
-      "sha256": "96a41ec04f53ad987c167baeb948668fdf56284d2381f602fcafb179bdc51f78",
+      "bytes": 145130,
+      "sha256": "4bbd0816e9bd8a5ba5d69e11449efd5cccd477567203cc71394a561b499f6320",
       "frames": 16,
       "canvas": [
         77,

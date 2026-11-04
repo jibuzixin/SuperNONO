@@ -126,6 +126,34 @@ sprite 23(foot)   f0  LABEL:down | PlaceObject2(6)
 > （触角提到本体之上），这两个方向**有意不再与原 SWF 逐像素一致**，
 > 其余 6 个方向的差异率不变。
 
+## 语义标签（`nono` 字段）· 染色用
+
+八方向走路资产**已打标**（染色/扩展用）。标签是 Lottie 的自定义字段，
+lottie-web 忽略它 ⇒ **渲染逐像素不受影响**（本 README 的逐像素基线仍成立）。
+
+| 层 | 标记内容 |
+|---|---|
+| fill (`fl`) | `role` + `dye`（`solid` = 本体白/耳根白，`shade` = 灰色阴影；**无 `dye` = 不染色**） |
+| group (`gr`) | `role` |
+| layer | `role` + `shape`（源 SWF 的 character id）+ `glow`（本形态走路有 3 个形状带辉光，见下） |
+
+形态 2 走路的 `role` 分布：`body`（本体白）、`ear_root`（耳根白）、
+`body_shade`（灰阴影）、`accent`（青色触角/鳍）、`dark`（黑面罩/投影）。
+**走路没有道具**，所以整段里没有任何 `prop` / `effect`。
+
+**辉光（glow）标签**：源 SWF 里身体的几个变体（`down` 的 shape74、
+`left/right` 的 shape105/109、`up` 的 shape147/151、`leftup/rightup` 的 shape133/136）
+以及触角根部的 shape 带着 `GLOWFILTER`（strength 1.0、blur 5~9）。
+走路转换脚本**不处理滤镜**，所以这些光晕**没有画进 Lottie** ⇒
+标签里 `baked: false`，运行时可以按标签自己补上这圈辉光。
+（证据图：`_work/evidence/f2_walk_glow_gap.png` —— 左 FFDec 参考有明显光晕，中我们的 Lottie 是硬边。）
+
+> 注意：逐像素基线是**白底 + 阈值 40** 比的，白色辉光叠白底上几乎看不出差别，
+> 所以这个偏差**不会**体现在下面的基线数字里。
+
+完整标签规范见 [`../README.md`](../README.md#️-语义标签nono-字段染色--以后扩展用)。
+预览：`http://127.0.0.1:8903/preview/dye.html?form=2`
+
 ## 音效：无
 
 走路**没有音效**（客户端的走路分支只做 `gotoAndStop(direction)`，完全不碰 `Sound`）。

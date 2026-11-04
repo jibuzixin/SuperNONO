@@ -16,8 +16,8 @@
       "name": "开心",
       "file": "nono2_exp_happy.json",
       "sourceFile": "exp/2_2.swf",
-      "bytes": 208999,
-      "sha256": "eb0ca9147ba7ce9ba06fd60164b26b3e84f18b26396caa0eaa452c0a0dba2957",
+      "bytes": 215842,
+      "sha256": "26f11a583f6558ccbe2c200140b5177970e298ee7effd3cc99d5b9ededa32ac2",
       "frames": 60,
       "canvas": [
         81,
@@ -57,8 +57,8 @@
       "name": "生气",
       "file": "nono2_exp_angry.json",
       "sourceFile": "exp/1_2.swf",
-      "bytes": 205913,
-      "sha256": "8d43c015ff8522ddbd5408f0974a85e26f10e8917e8878dfb12306aa01d33042",
+      "bytes": 213536,
+      "sha256": "e0f81e95d15edc1aa986d806430bac55cc7caf2c848f0840a65dbc1fdf1c55a7",
       "frames": 113,
       "canvas": [
         76,
@@ -98,8 +98,8 @@
       "name": "惊讶",
       "file": "nono2_exp_surprise.json",
       "sourceFile": "exp/3_2.swf",
-      "bytes": 678095,
-      "sha256": "1171d73315b2b0a0b7069be26fd5e4467333fc67c74848a0aa165172e85f8bb4",
+      "bytes": 683995,
+      "sha256": "b8185d9dfd86b4b93a182aed4a2d3afc61025ab79e5faa00158847ef947a1722",
       "frames": 113,
       "canvas": [
         89,
@@ -139,8 +139,8 @@
       "name": "悲哀",
       "file": "nono2_exp_sad.json",
       "sourceFile": "exp/4_2.swf",
-      "bytes": 419053,
-      "sha256": "7a10b51629e0d2f69b12ed35985e56dd87eb282ed1df66069f7e2ddd16114ad0",
+      "bytes": 428057,
+      "sha256": "e30940c01e2b6de3628539e2107fb4706d65602630b55f991dbdcd5b81069c1c",
       "frames": 118,
       "canvas": [
         76,
