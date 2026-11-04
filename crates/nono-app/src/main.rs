@@ -1922,7 +1922,12 @@ fn main() -> Result<()> {
                     form.walk.directions.len()
                 );
             }
-            println!("ok: {} animations in {}", total, assets.display());
+            println!(
+                "ok: {} animations in {} (assets v{})",
+                total,
+                assets.display(),
+                catalog.asset_version().unwrap_or("?")
+            );
             Ok(())
         }
         Command::List { assets } => {
@@ -1972,6 +1977,7 @@ fn run(assets: PathBuf, trace: bool, play: Option<String>, play_delay: f32, tint
         config = %config_path.display(),
         form = config.form,
         scale = config.scale,
+        asset_version = catalog.asset_version().unwrap_or("?"),
         "starting 超能 NONO"
     );
 

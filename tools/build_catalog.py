@@ -109,7 +109,23 @@ def audio_of(entry: dict, assets_dir: Path):
     }
 
 
+def load_asset_version(assets_dir: Path):
+    """Assets pack version from `asset-version.json` (optional for old packs)."""
+    path = assets_dir / "asset-version.json"
+    if not path.is_file():
+        return None
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except ValueError as exc:
+        raise CatalogError(f"invalid {path}: {exc}")
+    version = data.get("version")
+    if not isinstance(version, str) or not version:
+        raise CatalogError(f"invalid {path}: missing version")
+    return version
+
+
 def build(assets_dir: Path):
+    assets_version = load_asset_version(assets_dir)
     forms = []
     for form in sorted(FORM_NAMES):
         walk_dir = assets_dir / f"nono-form{form}-walk"
@@ -219,6 +235,7 @@ def build(assets_dir: Path):
 
     return {
         "format_version": SCHEMA_VERSION,
+        "asset_version": assets_version,
         "name": "超能 NONO",
         "generated_by": "tools/build_catalog.py",
         "note": "运行时唯一素材入口；由各目录 manifest.json + meta.json 归一化生成，不要手改。",
@@ -252,7 +269,8 @@ def main(argv=None):
         if current != text:
             print(f"catalog out of date: {out}", file=sys.stderr)
             return 1
-        print(f"catalog up to date: {out}")
+        version = catalog.get("asset_version") or "?"
+        print(f"catalog up to date: {out} (assets v{version})")
         return 0
 
     out.write_text(text, encoding="utf-8")

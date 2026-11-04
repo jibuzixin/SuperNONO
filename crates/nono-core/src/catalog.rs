@@ -128,6 +128,8 @@ impl AnimationSpec {
 #[derive(Debug, Deserialize)]
 struct CatalogFile {
     format_version: u32,
+    #[serde(default)]
+    asset_version: Option<String>,
     default_form: u8,
     forms: Vec<FormDef>,
 }
@@ -295,6 +297,11 @@ impl Catalog {
 
     pub fn default_form(&self) -> u8 {
         self.raw.default_form
+    }
+
+    /// Assets pack version (`assets/asset-version.json`), if the pack has one.
+    pub fn asset_version(&self) -> Option<&str> {
+        self.raw.asset_version.as_deref()
     }
 
     pub fn forms(&self) -> impl Iterator<Item = &FormDef> {
