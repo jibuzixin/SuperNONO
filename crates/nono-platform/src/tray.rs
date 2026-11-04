@@ -1,6 +1,7 @@
 //! Tray icon and native menu.
 
-use nono_core::{Catalog, Config};
+use nono_core::trail;
+use nono_core::{speed, Catalog, Config};
 use tray_icon::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 
@@ -10,6 +11,27 @@ pub const MENU_SOUND: &str = "sound";
 pub const MENU_WANDER: &str = "wander";
 pub const MENU_IDLE_ANIMATION: &str = "idle_animation";
 pub const MENU_FOLLOW: &str = "follow";
+pub const MENU_TRAIL_ENABLED: &str = "trail_enabled";
+pub const MENU_TRAIL_PREVIEW: &str = "trail_preview";
+pub const MENU_TRAIL_INTERVAL_DOWN: &str = "trail_interval_down";
+pub const MENU_TRAIL_INTERVAL_UP: &str = "trail_interval_up";
+pub const MENU_TRAIL_LIFETIME_DOWN: &str = "trail_lifetime_down";
+pub const MENU_TRAIL_LIFETIME_UP: &str = "trail_lifetime_up";
+pub const MENU_TRAIL_OPACITY_DOWN: &str = "trail_opacity_down";
+pub const MENU_TRAIL_OPACITY_UP: &str = "trail_opacity_up";
+pub const MENU_TRAIL_RESET: &str = "trail_reset";
+pub const MENU_TRAIL_RELOAD: &str = "trail_reload";
+pub const MENU_TRAIL_OPEN_CONFIG: &str = "trail_open_config";
+pub const MENU_TRAIL_WATCH: &str = "trail_watch";
+pub const MENU_SPEED_MOVE_DOWN: &str = "speed_move_down";
+pub const MENU_SPEED_MOVE_UP: &str = "speed_move_up";
+pub const MENU_SPEED_FOLLOW_DOWN: &str = "speed_follow_down";
+pub const MENU_SPEED_FOLLOW_UP: &str = "speed_follow_up";
+pub const MENU_SPEED_FOLLOW_GLOBAL: &str = "speed_follow_global";
+pub const MENU_SPEED_IDLE_DOWN: &str = "speed_idle_down";
+pub const MENU_SPEED_IDLE_UP: &str = "speed_idle_up";
+pub const MENU_SPEED_IDLE_GLOBAL: &str = "speed_idle_global";
+pub const MENU_SPEED_RESET: &str = "speed_reset";
 pub const MENU_TINT_PREFIX: &str = "tint:";
 pub const MENU_ACTION_PREFIX: &str = "action:";
 pub const MENU_EXPRESSION_PREFIX: &str = "expression:";
@@ -51,6 +73,19 @@ pub struct TrayMenu {
     pub form_items: Vec<(u8, CheckMenuItem)>,
     pub scale_items: Vec<(f32, CheckMenuItem)>,
     pub tint_items: Vec<(Option<[u8; 3]>, CheckMenuItem)>,
+    pub speed_move_value: MenuItem,
+    pub speed_follow_value: MenuItem,
+    pub speed_idle_value: MenuItem,
+    pub speed_follow_global: CheckMenuItem,
+    pub speed_idle_global: CheckMenuItem,
+    pub trail_enabled: CheckMenuItem,
+    /// Read-only rows that show the exact current values.
+    pub trail_interval_value: MenuItem,
+    pub trail_lifetime_value: MenuItem,
+    pub trail_opacity_value: MenuItem,
+    /// Runtime-only debugging aid: reload the trail fields when the config file
+    /// changes on disk.
+    pub trail_watch: CheckMenuItem,
     // Keep the owned wrappers alive for as long as the tray lives.
     #[allow(dead_code)]
     keep_items: Vec<MenuItem>,
@@ -72,6 +107,29 @@ impl TrayMenu {
         for (value, item) in &self.tint_items {
             item.set_checked(*value == config.tint);
         }
+        self.speed_move_value
+            .set_text(format!("全局：{:.0} pt/s", config.move_speed));
+        let follow = config.effective_follow_speed();
+        self.speed_follow_value.set_text(if config.follow_speed.is_none() {
+            format!("跟随：跟随全局（{:.0} pt/s）", follow)
+        } else {
+            format!("跟随：{:.0} pt/s", follow)
+        });
+        self.speed_follow_global.set_checked(config.follow_speed.is_none());
+        let idle = config.effective_idle_speed();
+        self.speed_idle_value.set_text(if config.idle_speed.is_none() {
+            format!("自由移动：跟随全局（{:.0} pt/s）", idle)
+        } else {
+            format!("自由移动：{:.0} pt/s", idle)
+        });
+        self.speed_idle_global.set_checked(config.idle_speed.is_none());
+        self.trail_enabled.set_checked(config.trail_enabled);
+        self.trail_interval_value
+            .set_text(format!("间隔：{} 毫秒", config.trail_interval_ms));
+        self.trail_lifetime_value
+            .set_text(format!("停留：{} 毫秒", config.trail_lifetime_ms));
+        self.trail_opacity_value
+            .set_text(format!("浓度：{:.0}%", config.trail_opacity * 100.0));
     }
 }
 
@@ -170,6 +228,196 @@ pub fn build_tray(
     menu.append(&scales_root)?;
     keep_submenus.push(scales_root);
 
+    let speed_root = Submenu::new("速度", true);
+    let speed_move_value =
+        MenuItem::new(format!("全局：{:.0} pt/s", config.move_speed), false, None);
+    let move_down = MenuItem::with_id(
+        MENU_SPEED_MOVE_DOWN,
+        format!("−{:.0} pt/s", speed::STEP),
+        true,
+        None,
+    );
+    let move_up = MenuItem::with_id(
+        MENU_SPEED_MOVE_UP,
+        format!("+{:.0} pt/s", speed::STEP),
+        true,
+        None,
+    );
+    speed_root.append(&speed_move_value)?;
+    speed_root.append(&move_down)?;
+    speed_root.append(&move_up)?;
+    speed_root.append(&PredefinedMenuItem::separator())?;
+
+    let speed_follow_value = MenuItem::new(
+        format!("跟随：{:.0} pt/s", config.effective_follow_speed()),
+        false,
+        None,
+    );
+    let follow_down = MenuItem::with_id(
+        MENU_SPEED_FOLLOW_DOWN,
+        format!("−{:.0} pt/s", speed::STEP),
+        true,
+        None,
+    );
+    let follow_up = MenuItem::with_id(
+        MENU_SPEED_FOLLOW_UP,
+        format!("+{:.0} pt/s", speed::STEP),
+        true,
+        None,
+    );
+    let speed_follow_global = CheckMenuItem::with_id(
+        MENU_SPEED_FOLLOW_GLOBAL,
+        "跟随使用全局速度",
+        true,
+        config.follow_speed.is_none(),
+        None,
+    );
+    speed_root.append(&speed_follow_value)?;
+    speed_root.append(&follow_down)?;
+    speed_root.append(&follow_up)?;
+    speed_root.append(&speed_follow_global)?;
+    speed_root.append(&PredefinedMenuItem::separator())?;
+
+    let speed_idle_value = MenuItem::new(
+        format!("自由移动：{:.0} pt/s", config.effective_idle_speed()),
+        false,
+        None,
+    );
+    let idle_down = MenuItem::with_id(
+        MENU_SPEED_IDLE_DOWN,
+        format!("−{:.0} pt/s", speed::STEP),
+        true,
+        None,
+    );
+    let idle_up = MenuItem::with_id(
+        MENU_SPEED_IDLE_UP,
+        format!("+{:.0} pt/s", speed::STEP),
+        true,
+        None,
+    );
+    let speed_idle_global = CheckMenuItem::with_id(
+        MENU_SPEED_IDLE_GLOBAL,
+        "自由移动使用全局速度",
+        true,
+        config.idle_speed.is_none(),
+        None,
+    );
+    speed_root.append(&speed_idle_value)?;
+    speed_root.append(&idle_down)?;
+    speed_root.append(&idle_up)?;
+    speed_root.append(&speed_idle_global)?;
+    speed_root.append(&PredefinedMenuItem::separator())?;
+
+    let speed_reset = MenuItem::with_id(MENU_SPEED_RESET, "恢复默认速度", true, None);
+    speed_root.append(&speed_reset)?;
+
+    keep_items.push(move_down);
+    keep_items.push(move_up);
+    keep_items.push(follow_down);
+    keep_items.push(follow_up);
+    keep_items.push(idle_down);
+    keep_items.push(idle_up);
+    keep_items.push(speed_reset);
+
+    menu.append(&speed_root)?;
+    keep_submenus.push(speed_root);
+
+    let trail_root = Submenu::new("残影", true);
+    let trail_enabled =
+        CheckMenuItem::with_id(MENU_TRAIL_ENABLED, "开启", true, config.trail_enabled, None);
+    let trail_preview =
+        MenuItem::with_id(MENU_TRAIL_PREVIEW, "预览一次（走一小段）", true, None);
+    trail_root.append(&trail_enabled)?;
+    trail_root.append(&trail_preview)?;
+    trail_root.append(&PredefinedMenuItem::separator())?;
+
+    let trail_interval_value =
+        MenuItem::new(format!("间隔：{} 毫秒", config.trail_interval_ms), false, None);
+    let interval_down = MenuItem::with_id(
+        MENU_TRAIL_INTERVAL_DOWN,
+        format!("−{} 毫秒（更密）", trail::INTERVAL_STEP_MS),
+        true,
+        None,
+    );
+    let interval_up = MenuItem::with_id(
+        MENU_TRAIL_INTERVAL_UP,
+        format!("+{} 毫秒（更疏）", trail::INTERVAL_STEP_MS),
+        true,
+        None,
+    );
+    trail_root.append(&trail_interval_value)?;
+    trail_root.append(&interval_down)?;
+    trail_root.append(&interval_up)?;
+    trail_root.append(&PredefinedMenuItem::separator())?;
+
+    let trail_lifetime_value =
+        MenuItem::new(format!("停留：{} 毫秒", config.trail_lifetime_ms), false, None);
+    let lifetime_down = MenuItem::with_id(
+        MENU_TRAIL_LIFETIME_DOWN,
+        format!("−{} 毫秒（更短）", trail::LIFETIME_STEP_MS),
+        true,
+        None,
+    );
+    let lifetime_up = MenuItem::with_id(
+        MENU_TRAIL_LIFETIME_UP,
+        format!("+{} 毫秒（更长）", trail::LIFETIME_STEP_MS),
+        true,
+        None,
+    );
+    trail_root.append(&trail_lifetime_value)?;
+    trail_root.append(&lifetime_down)?;
+    trail_root.append(&lifetime_up)?;
+    trail_root.append(&PredefinedMenuItem::separator())?;
+
+    let trail_opacity_value =
+        MenuItem::new(format!("浓度：{:.0}%", config.trail_opacity * 100.0), false, None);
+    let opacity_down = MenuItem::with_id(
+        MENU_TRAIL_OPACITY_DOWN,
+        format!("−{:.0}%（更淡）", trail::OPACITY_STEP * 100.0),
+        true,
+        None,
+    );
+    let opacity_up = MenuItem::with_id(
+        MENU_TRAIL_OPACITY_UP,
+        format!("+{:.0}%（更浓）", trail::OPACITY_STEP * 100.0),
+        true,
+        None,
+    );
+    trail_root.append(&trail_opacity_value)?;
+    trail_root.append(&opacity_down)?;
+    trail_root.append(&opacity_up)?;
+    trail_root.append(&PredefinedMenuItem::separator())?;
+
+    let trail_reset = MenuItem::with_id(MENU_TRAIL_RESET, "恢复默认", true, None);
+    let trail_watch = CheckMenuItem::with_id(
+        MENU_TRAIL_WATCH,
+        "自动重载配置（调试）",
+        true,
+        false,
+        None,
+    );
+    let trail_reload =
+        MenuItem::with_id(MENU_TRAIL_RELOAD, "重新载入残影/速度设置", true, None);
+    let trail_open_config = MenuItem::with_id(MENU_TRAIL_OPEN_CONFIG, "打开配置文件…", true, None);
+    trail_root.append(&trail_reset)?;
+    trail_root.append(&trail_watch)?;
+    trail_root.append(&trail_reload)?;
+    trail_root.append(&trail_open_config)?;
+
+    keep_items.push(interval_down);
+    keep_items.push(interval_up);
+    keep_items.push(lifetime_down);
+    keep_items.push(lifetime_up);
+    keep_items.push(opacity_down);
+    keep_items.push(opacity_up);
+    keep_items.push(trail_preview);
+    keep_items.push(trail_reset);
+    keep_items.push(trail_reload);
+    keep_items.push(trail_open_config);
+
+    menu.append(&trail_root)?;
+    keep_submenus.push(trail_root);
+
     let sound = CheckMenuItem::with_id(MENU_SOUND, "音效", true, config.sound, None);
     let wander = CheckMenuItem::with_id(MENU_WANDER, "自由走动", true, config.wander, None);
     let idle_animation = CheckMenuItem::with_id(
@@ -212,6 +460,16 @@ pub fn build_tray(
         form_items,
         scale_items,
         tint_items,
+        speed_move_value,
+        speed_follow_value,
+        speed_idle_value,
+        speed_follow_global,
+        speed_idle_global,
+        trail_enabled,
+        trail_interval_value,
+        trail_lifetime_value,
+        trail_opacity_value,
+        trail_watch,
         keep_items,
         keep_submenus,
     })

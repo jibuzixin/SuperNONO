@@ -39,8 +39,9 @@
 - `--trace` 会把每条事件以 JSON 打到 stderr，便于调试插件和 Agent。
 
 已定义的事件：`UserInput`、`UserClick`、`DragStarted/Ended`、`PlayAnimation`、
-`AnimationFinished`、`ChangeState`、`ChangeForm`、`SetScale`、`AssetLoaded/Error`、
-`ExtensionEvent`、`AgentRequest/Reply/Error`。新增事件只需在 `Event` 枚举加一个变体。
+`AnimationFinished`、`ChangeState`、`ChangeForm`、`SetScale`、`SetTrail`、`SetSpeed`、
+`AssetLoaded/Error`、`ExtensionEvent`、`AgentRequest/Reply/Error`。新增事件只需在
+`Event` 枚举加一个变体。
 
 ## 3. 角色状态机
 
@@ -91,6 +92,24 @@
   3. 本体附近的灰色/蓝灰细节（如背后两个灰椭圆）按亮度染成较深的同色。
 - **首帧加载顺序**：切换动画时先加载/解析 Lottie，再改窗口尺寸和呈现层。否则冷启动
   第一次跑大动作时，窗口会先变大、内容还没准备好，出现短暂空白。
+- **行走残影**：时间驱动，而不是按距离或固定档位。
+  - 每 `trail_interval_ms` 生成一份快照（控制疏密），快照只保留不透明度>0 的
+    角色部分；地面阴影是脚底锚点所在的独立连通块，生成快照时用
+    `nono_render::strip_ground_shadow` 整块剔除，所以影子不会拖尾。
+  - 每份快照按自己的年龄 `t = age / lifetime` 计算透明度：
+    `opacity × fade_in(t) × (1-t)^1.6`，前 10% 淡入、之后逐渐淡出（控制尾巴长度）。
+  - 渲染时窗口临时扩大 `pad = min(行走速度 × 停留时间 + 2px, 700px)`，旧帧按当时的
+    脚底锚点偏移贴回，最后把当前帧合成在最上层（`nono_render::compose_trail`）。
+    700px 上限保证极端速度/停留组合不会分配巨大的舞台。
+  - 停止走路后，历史帧继续按剩余停留时间淡出，随后释放并把窗口缩回原尺寸；
+    淡出期间窗口保持透明边距和点击穿透。
+  - 三个参数都可由用户自定义：间隔 20–400 ms、停留 100–1600 ms、浓度 0.02–0.60。
+    默认 120 ms / 640 ms / 0.22。停留时间还会被 `间隔 × 48` 限制，避免快照数量
+    和窗口无限增长。托盘提供 ± 微调、“预览一次（走一小段）”、“恢复默认”、
+    打开配置文件，以及一个运行时“自动重载配置（调试）”开关
+    （每 500 ms 轮询一次文件 mtime）。
+  - 时间参数与窗口大小都用物理像素/秒计算，因此散步（60 pt/s）和跟随鼠标
+    （140 pt/s）的尾巴长度不同，符合运动速度直觉。
 - 渲染按动画自身帧率（25fps）节流；只有「正在播动画」或「内容变化」时才重绘。
   Idle 时完全不重绘，CPU 接近 0。
 
@@ -115,7 +134,10 @@ y = A.y - pet_anchor.y * scale
 
 窗口随动画画布动态缩放：
 
-- 走路窗口约 `99×144 pt`（1.5×，2x 屏），很轻。
+- 走路窗口约 `99×144 pt`（1.5×，2x 屏），很轻。开着残影时窗口在走路期间临时向
+  四周扩出 `pad = min(速度 × 停留时间 + 2px, 700px)`（默认约 `40 pt` 散步 / `91 pt`
+  跟随）作为透明舞台；这段时间整窗点击穿透。停下后残影继续淡出，窗口保持同样大小直到最后
+  一份快照消失，然后恢复原始尺寸和交互。
 - 大动作会把窗口临时放大（例如形态 2 玩球到 `1315×720 pt`），期间窗口设为
   **点击穿透**，不挡桌面；`auto_end=0` 的动作例外，保持可交互。
 - 个别素材首尾位置不完全一致（形态 2 开机），`tuning.json` 支持 `offset_start`：
@@ -152,7 +174,8 @@ assets/                     # 只读素材 + catalog.json
   catalog.json              # tools/build_catalog.py 生成，运行时唯一入口
   icon/nono-tray.png        # 由 `nono --render-icon` 生成
 ~/Library/Application Support/NonoPet/config.toml
-                            # form / scale / sound / volume / wander / anchor
+                            # form / scale / sound / volume / wander
+                            # / move_speed / follow_speed / idle_speed / trail_* / anchor
 ```
 
 配置在启动时读取，菜单操作与退出时写回；锚点持久化，重启后回到原位置。
@@ -165,7 +188,8 @@ assets/                     # 只读素材 + catalog.json
 - 20% 做一个随机表情
 - 其余：换个朝向继续待机
 
-可以从菜单关闭「自由走动」。行为只调用状态机的公开 API，不直接碰窗口。
+走一段的速度取「待机自由移动速度」：`idle_speed` 有值就用它，否则回退到全局
+`move_speed`。可以从菜单关闭「自由走动」。行为只调用状态机的公开 API，不直接碰窗口。
 
 ## 8.1 鼠标跟随（20 秒）
 
@@ -173,10 +197,27 @@ assets/                     # 只读素材 + catalog.json
 
 - 每 150 ms 读一次鼠标位置（macOS 用 `NSEvent.mouseLocation`，换算到与 winit 一致的
   左上角物理像素），把目标夹到宠物轮廓安全区内。
-- 距离超过 60 逻辑像素就以 140 逻辑像素/秒走过去；进入该范围后停下并转向鼠标方向。
+- 距离超过 60 逻辑像素就以「跟随速度」走过去（`follow_speed`，未设置时回退到
+  全局 `move_speed`；默认 140 pt/s）；进入该范围后停下并转向鼠标方向。
 - 20 秒后自动结束（或再次点菜单 / 拖拽 / 打开动作菜单提前结束），随后把待机决策
   往后推，避免刚跟完就自己乱走。
 - 跟随期间跳过常规的行为调度，但渲染、窗口移动、边缘夹紧仍走同一套逻辑。
+
+## 8.2 移动速度
+
+`nono_core::speed` 定义范围 10–400 pt/s（逻辑像素/秒，实际位移再乘 DPI）：
+
+```
+move_speed   = 60.0    # 全局速度，始终存在
+follow_speed = 140.0   # Option：None = 跟随全局
+idle_speed   = None    # Option：None = 跟随全局
+```
+
+- `Config::effective_follow_speed()` / `effective_idle_speed()` 负责回退。
+- `Behavior` 存一份待机速度，配置/热重载改变时会同步；跟随步骤每次读取最新值。
+- 托盘「速度」子菜单显示三个当前值，提供 ±10 pt/s、两个“使用全局速度”开关、
+  “恢复默认速度”。默认值保留原手感：全局 60、跟随 140、自由移动跟全局。
+- 托盘里的“打开配置文件…”/“自动重载配置（调试）”同时覆盖残影与速度字段。
 
 ## 9. 扩展点
 

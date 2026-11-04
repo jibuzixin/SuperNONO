@@ -76,6 +76,10 @@ mod macos {
         layer: Retained<CALayer>,
         color_space: CFRetained<CGColorSpace>,
         dpi: f64,
+        /// Pixel size of the current frame; the layer frame must match it or
+        /// larger trail stages would be drawn at the old size.
+        width: u32,
+        height: u32,
     }
 
     impl std::fmt::Debug for MacPresenter {
@@ -115,6 +119,8 @@ mod macos {
                 layer,
                 color_space,
                 dpi: window.scale_factor(),
+                width: 0,
+                height: 0,
             };
             let size = window.inner_size();
             presenter.resize(size.width, size.height, window.scale_factor())?;
@@ -134,7 +140,10 @@ mod macos {
             if width == 0 || height == 0 {
                 return Err(PresenterError::ImageRejected);
             }
-            if (self.dpi - dpi).abs() > f64::EPSILON {
+            if (self.dpi - dpi).abs() > f64::EPSILON
+                || self.width != width
+                || self.height != height
+            {
                 self.resize(width, height, dpi)?;
             }
 
@@ -194,6 +203,8 @@ mod macos {
                 return Ok(());
             }
             self.dpi = dpi;
+            self.width = width;
+            self.height = height;
             self.layer.setContentsScale(dpi);
             let points_w = width as f64 / dpi;
             let points_h = height as f64 / dpi;

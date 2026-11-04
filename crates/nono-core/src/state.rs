@@ -99,6 +99,22 @@ impl PetState {
         )
     }
 
+    /// Current walking speed in physical pixels per second (0 when not walking).
+    pub fn walk_speed(&self) -> f32 {
+        if self.mode == Mode::Walk {
+            self.walk_speed
+        } else {
+            0.0
+        }
+    }
+
+    /// Applies a speed change to a walk that is already in progress.
+    pub fn set_walk_speed(&mut self, speed: f32) {
+        if self.mode == Mode::Walk {
+            self.walk_speed = speed.max(1.0);
+        }
+    }
+
     /// Whether the current animation still produces new frames.
     ///
     /// Idle loops the walk cycle in place (the original client does the same),
@@ -422,6 +438,20 @@ mod tests {
         state.tick(&catalog, end);
         assert!(!state.after_finish(&catalog, end));
         assert_eq!(state.facing, Direction::Left);
+    }
+
+    #[test]
+    fn walk_speed_can_be_adjusted_mid_walk() {
+        let Some((catalog, mut state)) = catalog_and_state() else { return };
+        let start = Instant::now();
+        let target = Point::new(state.anchor.x + 600.0, state.anchor.y);
+        state.start_walk(&catalog, target, 400.0, start);
+        assert!((state.walk_speed() - 400.0).abs() < 0.01);
+        state.set_walk_speed(800.0);
+        assert!((state.walk_speed() - 800.0).abs() < 0.01);
+        // Outside Walk the stored speed is reported as zero.
+        state.stop_walk(&catalog, start);
+        assert_eq!(state.walk_speed(), 0.0);
     }
 
     #[test]

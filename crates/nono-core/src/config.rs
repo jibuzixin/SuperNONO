@@ -5,6 +5,14 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::geometry::Point;
+use crate::speed;
+use crate::trail;
+
+/// Writes the opacity as a clean two-decimal number (`0.22`, not
+/// `0.2199999988079071`) so the tuning file stays hand-editable.
+fn serialize_opacity<S: serde::Serializer>(value: &f32, serializer: S) -> Result<S::Ok, S::Error> {
+    serializer.serialize_f64((*value as f64 * 100.0).round() / 100.0)
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
@@ -22,6 +30,23 @@ pub struct Config {
     pub idle_animation: bool,
     pub roam_min_secs: f32,
     pub roam_max_secs: f32,
+    /// Global movement speed in logical points per second.
+    pub move_speed: f32,
+    /// Follow-mouse speed override.  `None` uses [`Config::move_speed`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub follow_speed: Option<f32>,
+    /// Idle/free-roam speed override.  `None` uses [`Config::move_speed`].
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub idle_speed: Option<f32>,
+    /// Fading afterimages while walking.
+    pub trail_enabled: bool,
+    /// How often a new afterimage is spawned (controls density).
+    pub trail_interval_ms: u32,
+    /// How long each afterimage fades in/out (controls the trail length).
+    pub trail_lifetime_ms: u32,
+    /// Peak opacity of an afterimage (controls how strong the trail is).
+    #[serde(serialize_with = "serialize_opacity")]
+    pub trail_opacity: f32,
     /// Screen-space (physical px) position of the pet's feet.  `None` means
     /// "pick a spot on the primary monitor at startup".
     pub anchor: Option<Point>,
@@ -41,6 +66,13 @@ impl Default for Config {
             idle_animation: true,
             roam_min_secs: 6.0,
             roam_max_secs: 16.0,
+            move_speed: speed::DEFAULT_GLOBAL,
+            follow_speed: speed::DEFAULT_FOLLOW,
+            idle_speed: speed::DEFAULT_IDLE,
+            trail_enabled: trail::DEFAULT_ENABLED,
+            trail_interval_ms: trail::DEFAULT_INTERVAL_MS,
+            trail_lifetime_ms: trail::DEFAULT_LIFETIME_MS,
+            trail_opacity: trail::DEFAULT_OPACITY,
             anchor: None,
             tint: None,
         }
@@ -50,23 +82,25 @@ impl Default for Config {
 impl Config {
     /// Loads the config, falling back to defaults on any error.
     pub fn load(path: &Path) -> Self {
-        match std::fs::read_to_string(path) {
-            Ok(text) => match toml::from_str::<Config>(&text) {
-                Ok(mut config) => {
-                    config.sanitize();
-                    config
-                }
-                Err(err) => {
-                    tracing::warn!(path = %path.display(), %err, "config parse failed, using defaults");
-                    Config::default()
-                }
-            },
+        match Self::load_strict(path) {
+            Ok(config) => config,
             Err(err) if err.kind() == std::io::ErrorKind::NotFound => Config::default(),
             Err(err) => {
-                tracing::warn!(path = %path.display(), %err, "config read failed, using defaults");
+                tracing::warn!(path = %path.display(), %err, "config load failed, using defaults");
                 Config::default()
             }
         }
+    }
+
+    /// Like [`Config::load`], but reports read/parse errors to the caller.  The
+    /// debug hot-reload path uses this so a typo while editing the file does not
+    /// silently reset the running settings.
+    pub fn load_strict(path: &Path) -> std::io::Result<Self> {
+        let text = std::fs::read_to_string(path)?;
+        let mut config: Config = toml::from_str(&text)
+            .map_err(|err| std::io::Error::new(std::io::ErrorKind::InvalidData, err))?;
+        config.sanitize();
+        Ok(config)
     }
 
     pub fn save(&self, path: &Path) -> std::io::Result<()> {
@@ -86,6 +120,23 @@ impl Config {
         }
         self.roam_min_secs = self.roam_min_secs.clamp(2.0, 120.0);
         self.roam_max_secs = self.roam_max_secs.clamp(self.roam_min_secs, 600.0);
+        self.move_speed = speed::sanitize(self.move_speed);
+        self.follow_speed = speed::sanitize_override(self.follow_speed);
+        self.idle_speed = speed::sanitize_override(self.idle_speed);
+        let (interval, lifetime) = trail::sanitize(self.trail_interval_ms, self.trail_lifetime_ms);
+        self.trail_interval_ms = interval;
+        self.trail_lifetime_ms = lifetime;
+        self.trail_opacity = (trail::sanitize_opacity(self.trail_opacity) * 100.0).round() / 100.0;
+    }
+
+    /// Follow speed in pt/s, falling back to the global speed.
+    pub fn effective_follow_speed(&self) -> f32 {
+        self.follow_speed.unwrap_or(self.move_speed)
+    }
+
+    /// Idle/free-roam speed in pt/s, falling back to the global speed.
+    pub fn effective_idle_speed(&self) -> f32 {
+        self.idle_speed.unwrap_or(self.move_speed)
     }
 }
 
@@ -160,12 +211,63 @@ mod tests {
         config.form = 2;
         config.anchor = Some(Point::new(1200.0, 800.0));
         config.tint = Some([255, 150, 180]);
+        config.trail_interval_ms = 120;
+        config.trail_lifetime_ms = 640;
+        config.trail_opacity = 0.35;
+        config.move_speed = 90.0;
+        config.follow_speed = None;
+        config.idle_speed = Some(120.0);
         let text = toml::to_string_pretty(&config).unwrap();
-        let back: Config = toml::from_str(&text).unwrap();
+        assert!(text.contains("trail_opacity = 0.35"), "{text}");
+        assert!(text.contains("idle_speed = 120.0"), "{text}");
+        assert!(!text.contains("follow_speed"), "None override must be omitted: {text}");
+        let mut back: Config = toml::from_str(&text).unwrap();
+        back.sanitize();
         assert_eq!(back.form, 2);
         assert_eq!(back.scale, config.scale);
         assert_eq!(back.anchor, config.anchor);
         assert_eq!(back.tint, Some([255, 150, 180]));
+        assert_eq!(back.trail_interval_ms, 120);
+        assert_eq!(back.trail_lifetime_ms, 640);
+        assert!((back.trail_opacity - 0.35).abs() < 1e-6);
+        assert!((back.move_speed - 90.0).abs() < 1e-6);
+        assert_eq!(back.follow_speed, None);
+        assert_eq!(back.idle_speed, Some(120.0));
+        assert!((back.effective_follow_speed() - 90.0).abs() < 1e-6);
+        assert!((back.effective_idle_speed() - 120.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn speed_overrides_fall_back_to_the_global_speed() {
+        let mut config = Config::default();
+        assert!((config.effective_idle_speed() - 60.0).abs() < 1e-6);
+        assert!((config.effective_follow_speed() - 140.0).abs() < 1e-6);
+        config.move_speed = 100.0;
+        config.follow_speed = None;
+        config.idle_speed = None;
+        assert!((config.effective_idle_speed() - 100.0).abs() < 1e-6);
+        assert!((config.effective_follow_speed() - 100.0).abs() < 1e-6);
+    }
+
+    #[test]
+    fn old_configs_get_the_default_trail_settings() {
+        let back: Config = toml::from_str("form = 1\nscale = 1.5\n").unwrap();
+        assert!(back.trail_enabled);
+        assert_eq!(back.trail_interval_ms, trail::DEFAULT_INTERVAL_MS);
+        assert_eq!(back.trail_lifetime_ms, trail::DEFAULT_LIFETIME_MS);
+        assert!((back.trail_opacity - trail::DEFAULT_OPACITY).abs() < 1e-6);
+    }
+
+    #[test]
+    fn legacy_trail_preset_field_is_ignored_without_losing_the_config() {
+        // The pre-release build wrote `trail = "normal"`; the new timing fields
+        // must still load and everything else must be preserved.
+        let back: Config =
+            toml::from_str("form = 3\ntrail = \"normal\"\ntrail_interval_ms = 40\n").unwrap();
+        assert_eq!(back.form, 3);
+        assert_eq!(back.trail_interval_ms, 40);
+        assert_eq!(back.trail_lifetime_ms, trail::DEFAULT_LIFETIME_MS);
+        assert!((back.trail_opacity - trail::DEFAULT_OPACITY).abs() < 1e-6);
     }
 
     #[test]
@@ -175,5 +277,33 @@ mod tests {
         assert_eq!(config.scale, 3.0);
         assert_eq!(config.volume, 0.0);
         assert_eq!(config.form, 1);
+    }
+
+    #[test]
+    fn sanitize_repairs_trail_timing() {
+        let mut config = Config {
+            trail_interval_ms: 10,
+            trail_lifetime_ms: 10,
+            trail_opacity: 9.0,
+            ..Config::default()
+        };
+        config.sanitize();
+        assert_eq!(config.trail_interval_ms, trail::MIN_INTERVAL_MS);
+        assert_eq!(config.trail_lifetime_ms, trail::MIN_LIFETIME_MS);
+        assert!((config.trail_opacity - trail::MAX_OPACITY).abs() < 1e-6);
+    }
+
+    #[test]
+    fn sanitize_repairs_movement_speeds() {
+        let mut config = Config {
+            move_speed: 0.0,
+            follow_speed: Some(9999.0),
+            idle_speed: Some(-1.0),
+            ..Config::default()
+        };
+        config.sanitize();
+        assert!((config.move_speed - speed::MIN_SPEED).abs() < 1e-6);
+        assert_eq!(config.follow_speed, Some(speed::MAX_SPEED));
+        assert_eq!(config.idle_speed, Some(speed::MIN_SPEED));
     }
 }

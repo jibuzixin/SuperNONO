@@ -76,6 +76,16 @@ impl Rect {
         let h = (self.h - margin * 2.0).max(1.0);
         Rect::new(self.x + margin, self.y + margin, w, h)
     }
+
+    /// Grow by `margin` on every side (used for the motion-trail stage).
+    pub fn outset(&self, margin: f32) -> Rect {
+        Rect::new(
+            self.x - margin,
+            self.y - margin,
+            self.w + margin * 2.0,
+            self.h + margin * 2.0,
+        )
+    }
 }
 
 /// The eight walk directions, named the way the asset manifests name them.
@@ -205,6 +215,13 @@ mod tests {
         // Fully inside: unchanged.
         let inside = Rect::new(10.0, 100.0, 50.0, 60.0);
         assert_eq!(inside.intersect(screen), inside);
+    }
+
+    #[test]
+    fn outset_adds_equal_margins_for_the_trail_stage() {
+        let tight = Rect::new(100.0, 200.0, 198.0, 288.0);
+        assert_eq!(tight.outset(0.0), tight);
+        assert_eq!(tight.outset(20.0), Rect::new(80.0, 180.0, 238.0, 328.0));
     }
 
     #[test]

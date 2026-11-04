@@ -8,13 +8,17 @@
 //! * [`state`] — the character state machine and playback clock.
 //! * [`behavior`] — idle/wander scheduling ("personality").
 //! * [`config`] — persisted user settings.
+//! * [`trail`] — walking afterimage timing (interval, lifetime, opacity).
+//! * [`speed`] — movement speed (global + follow/idle overrides).
 
 pub mod behavior;
 pub mod catalog;
 pub mod config;
 pub mod event;
 pub mod geometry;
+pub mod speed;
 pub mod state;
+pub mod trail;
 
 pub use behavior::Behavior;
 pub use catalog::{AnimationKind, AnimationSpec, AudioSpec, Catalog};

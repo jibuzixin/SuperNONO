@@ -316,7 +316,203 @@ impl Renderer {
     }
 }
 
+// ── motion trail ────────────────────────────────────────────────────
 
+/// Erases the pet's ground shadow from a rendered frame **in place**.
+///
+/// Walk canvases draw a separate soft shadow on the ground under the pet
+/// anchor.  Afterimages should only repeat the character, not that shadow.  We
+/// flood-fill the opaque component that contains the anchor (the asset contract
+/// puts the anchor in the shadow) and clear it.
+///
+/// If the component is large or reaches far above the anchor, it is the pet
+/// itself (or touches it), so nothing is erased.
+pub fn strip_ground_shadow(rgba: &mut [u8], width: u32, height: u32, anchor: (f32, f32)) {
+    if width == 0 || height == 0 {
+        return;
+    }
+    let w = width as usize;
+    let h = height as usize;
+    if rgba.len() != w * h * 4 {
+        return;
+    }
+    let opaque = |idx: usize| rgba[idx * 4 + 3] > 0;
+
+    // The shadow is centred on the anchor; start from the nearest drawn pixel.
+    let (ax, ay) = anchor;
+    let mut seed: Option<(usize, usize, f32)> = None;
+    for y in 0..h {
+        for x in 0..w {
+            let idx = y * w + x;
+            if !opaque(idx) {
+                continue;
+            }
+            let distance = (x as f32 - ax).powi(2) + (y as f32 - ay).powi(2);
+            if seed.map_or(true, |(_, _, best)| distance < best) {
+                seed = Some((x, y, distance));
+            }
+        }
+    }
+    let Some((sx, sy, _)) = seed else { return };
+
+    // Flood-fill the connected component and remember its bounds.
+    let mut stack = vec![(sx, sy)];
+    let mut seen = vec![false; w * h];
+    seen[sy * w + sx] = true;
+    let mut component = Vec::new();
+    let (mut min_x, mut min_y, mut max_x, mut max_y) = (sx, sy, sx, sy);
+    while let Some((x, y)) = stack.pop() {
+        component.push(y * w + x);
+        min_x = min_x.min(x);
+        min_y = min_y.min(y);
+        max_x = max_x.max(x);
+        max_y = max_y.max(y);
+        for (dx, dy) in [(1isize, 0isize), (-1, 0), (0, 1), (0, -1)] {
+            let nx = x as isize + dx;
+            let ny = y as isize + dy;
+            if nx < 0 || ny < 0 || nx >= w as isize || ny >= h as isize {
+                continue;
+            }
+            let (nx, ny) = (nx as usize, ny as usize);
+            let idx = ny * w + nx;
+            if !seen[idx] && opaque(idx) {
+                seen[idx] = true;
+                stack.push((nx, ny));
+            }
+        }
+    }
+
+    // The ground shadow is small and sits around the anchor.  A component that
+    // covers a large part of the canvas, or reaches well above the anchor, is
+    // the pet: keep it rather than erasing the whole afterimage.
+    let component_h = max_y - min_y + 1;
+    if component.len() * 5 > w * h || component_h * 3 > h {
+        return;
+    }
+    let top_guard = (h as f32 * 0.20) as usize;
+    if min_y + top_guard < sy {
+        return;
+    }
+
+    for idx in component {
+        let byte = idx * 4;
+        rgba[byte..byte + 4].fill(0);
+    }
+}
+
+/// One pre-rendered historical frame, positioned in stage pixels.
+///
+/// `pixels` is premultiplied RGBA8, exactly what [`Renderer::rgba8`] returns.
+/// `alpha` scales the whole layer before it is composited, which turns a past
+/// frame into a translucent afterimage.
+pub struct GhostFrame<'a> {
+    pub pixels: &'a [u8],
+    pub width: u32,
+    pub height: u32,
+    pub left: i32,
+    pub top: i32,
+    pub alpha: f32,
+}
+
+/// Composites `ghosts` (oldest first) onto a transparent stage, then draws the
+/// current frame on top.
+///
+/// This is how the walking afterimage is built: the pet window is temporarily
+/// enlarged by the trail margin, past frames are redrawn at their old positions
+/// with decaying opacity, and the live frame sits above them.  Everything is
+/// premultiplied RGBA8, so blending is `src + dst * (1 - src_alpha)`.
+pub fn compose_trail(
+    stage: &mut [u8],
+    stage_w: u32,
+    stage_h: u32,
+    current: &[u8],
+    current_w: u32,
+    current_h: u32,
+    current_left: i32,
+    current_top: i32,
+    ghosts: &[GhostFrame<'_>],
+) {
+    debug_assert_eq!(stage.len(), stage_w as usize * stage_h as usize * 4);
+    debug_assert_eq!(current.len(), current_w as usize * current_h as usize * 4);
+    if stage.len() != stage_w as usize * stage_h as usize * 4
+        || current.len() != current_w as usize * current_h as usize * 4
+    {
+        return;
+    }
+    stage.fill(0);
+    for ghost in ghosts {
+        blend_layer(
+            stage,
+            stage_w,
+            stage_h,
+            ghost.pixels,
+            ghost.width,
+            ghost.height,
+            ghost.left,
+            ghost.top,
+            ghost.alpha,
+        );
+    }
+    blend_layer(
+        stage,
+        stage_w,
+        stage_h,
+        current,
+        current_w,
+        current_h,
+        current_left,
+        current_top,
+        1.0,
+    );
+}
+
+/// Blends one premultiplied layer into `dst`, clipping it to the stage.
+#[allow(clippy::too_many_arguments)]
+fn blend_layer(
+    dst: &mut [u8],
+    dst_w: u32,
+    dst_h: u32,
+    src: &[u8],
+    src_w: u32,
+    src_h: u32,
+    left: i32,
+    top: i32,
+    alpha: f32,
+) {
+    debug_assert_eq!(dst.len(), dst_w as usize * dst_h as usize * 4);
+    debug_assert_eq!(src.len(), src_w as usize * src_h as usize * 4);
+    if dst.len() != dst_w as usize * dst_h as usize * 4
+        || src.len() != src_w as usize * src_h as usize * 4
+    {
+        return;
+    }
+    let alpha = alpha.clamp(0.0, 1.0);
+    if alpha <= 0.0 || src_w == 0 || src_h == 0 || dst_w == 0 || dst_h == 0 {
+        return;
+    }
+    let x0 = left.max(0);
+    let y0 = top.max(0);
+    let x1 = (left + src_w as i32).min(dst_w as i32);
+    let y1 = (top + src_h as i32).min(dst_h as i32);
+    if x1 <= x0 || y1 <= y0 {
+        return;
+    }
+    for y in y0..y1 {
+        for x in x0..x1 {
+            let si = (((y - top) as u32 * src_w + (x - left) as u32) * 4) as usize;
+            let di = ((y as u32 * dst_w + x as u32) * 4) as usize;
+            let sa = src[si + 3] as f32 / 255.0 * alpha;
+            if sa <= 0.0 {
+                continue;
+            }
+            let inv = 1.0 - sa;
+            for c in 0..4 {
+                dst[di + c] =
+                    (src[si + c] as f32 * alpha + dst[di + c] as f32 * inv).round() as u8;
+            }
+        }
+    }
+}
 
 /// True when a colour is a mid-tone body shade (grey/beige), used to identify
 /// the character's body layers.  Pure white is not a shade.
@@ -785,5 +981,171 @@ mod tests {
         assert_eq!(renderer.loaded_id(), Some(happy.id.as_str()));
         renderer.render_frame(10.0).unwrap();
         assert!(renderer.rgba8().chunks(4).any(|px| px[3] > 8));
+    }
+
+    #[test]
+    fn trail_compositing_fades_ghosts_under_the_current_frame() {
+        // 1x1 premultiplied red ghost, 1x1 opaque green current frame on a 4x1
+        // transparent stage.  The ghost lands at x=0, the pet at x=2.
+        let ghost = [128u8, 0, 0, 128];
+        let current = [0u8, 255, 0, 255];
+        let mut stage = vec![0u8; 4 * 1 * 4];
+        compose_trail(
+            &mut stage,
+            4,
+            1,
+            &current,
+            1,
+            1,
+            2,
+            0,
+            &[GhostFrame {
+                pixels: &ghost,
+                width: 1,
+                height: 1,
+                left: 0,
+                top: 0,
+                alpha: 0.5,
+            }],
+        );
+
+        // 50% of a 50%-opaque red => 25% red, still premultiplied.
+        assert_eq!(&stage[0..4], &[64, 0, 0, 64]);
+        // Untouched transparent pixel between ghost and pet.
+        assert_eq!(&stage[4..8], &[0, 0, 0, 0]);
+        // The current frame is always fully composited (not faded).
+        assert_eq!(&stage[8..12], &[0, 255, 0, 255]);
+        // Stage was cleared rather than accumulating.
+        assert_eq!(&stage[12..16], &[0, 0, 0, 0]);
+    }
+
+    #[test]
+    fn trail_compositing_clips_ghosts_at_the_stage_edge() {
+        let ghost = [255u8, 0, 0, 255];
+        let current = [0u8, 0, 255, 255];
+        let mut stage = vec![0u8; 2 * 2 * 4];
+        compose_trail(
+            &mut stage,
+            2,
+            2,
+            &current,
+            1,
+            1,
+            0,
+            0,
+            &[GhostFrame {
+                pixels: &ghost,
+                width: 1,
+                height: 1,
+                left: -5,
+                top: -5,
+                alpha: 1.0,
+            }],
+        );
+        // The off-stage ghost is fully clipped; only the pet remains.
+        assert_eq!(&stage[0..4], &[0, 0, 255, 255]);
+        assert!(stage[4..].iter().all(|b| *b == 0));
+    }
+
+    fn put(frame: &mut [u8], width: usize, x: usize, y: usize, alpha: u8) {
+        let i = (y * width + x) * 4;
+        frame[i..i + 4].copy_from_slice(&[alpha, alpha, alpha, alpha]);
+    }
+
+    fn alpha_at(frame: &[u8], width: usize, x: usize, y: usize) -> u8 {
+        frame[(y * width + x) * 4 + 3]
+    }
+
+    #[test]
+    fn trail_frames_keep_the_pet_but_drop_the_ground_shadow() {
+        // 8x8 canvas: pet blob on top, separate ground shadow around the anchor.
+        let mut frame = vec![0u8; 8 * 8 * 4];
+        for (x, y) in [(2, 1), (3, 1), (2, 2), (3, 2)] {
+            put(&mut frame, 8, x, y, 255);
+        }
+        for (x, y) in [(3, 5), (4, 5), (3, 6), (4, 6), (2, 6), (5, 6)] {
+            put(&mut frame, 8, x, y, 255);
+        }
+        // A faint antialiased shadow edge pixel must go too.
+        put(&mut frame, 8, 2, 5, 3);
+        strip_ground_shadow(&mut frame, 8, 8, (4.0, 6.0));
+
+        for (x, y) in [(2, 1), (3, 1), (2, 2), (3, 2)] {
+            assert_eq!(alpha_at(&frame, 8, x, y), 255, "pet pixel ({x},{y}) was erased");
+        }
+        for (x, y) in [(3, 5), (4, 5), (3, 6), (4, 6), (2, 6), (5, 6), (2, 5)] {
+            assert_eq!(alpha_at(&frame, 8, x, y), 0, "shadow pixel ({x},{y}) survived");
+        }
+    }
+
+    #[test]
+    fn shadow_stripping_does_not_erase_a_component_connected_to_the_pet() {
+        // A tall blob containing the anchor: the guard must keep everything.
+        let mut frame = vec![0u8; 8 * 8 * 4];
+        for y in 1..8 {
+            for x in 1..7 {
+                put(&mut frame, 8, x, y, 255);
+            }
+        }
+        strip_ground_shadow(&mut frame, 8, 8, (4.0, 6.0));
+        assert_eq!(alpha_at(&frame, 8, 4, 6), 255);
+        assert_eq!(alpha_at(&frame, 8, 4, 2), 255);
+    }
+
+    #[test]
+    fn shadow_stripping_ignores_empty_and_malformed_frames() {
+        let mut empty = vec![0u8; 4 * 4 * 4];
+        strip_ground_shadow(&mut empty, 4, 4, (2.0, 2.0));
+        assert!(empty.iter().all(|b| *b == 0));
+
+        let mut short = vec![0u8; 3];
+        strip_ground_shadow(&mut short, 4, 4, (2.0, 2.0));
+        assert_eq!(short, vec![0, 0, 0]);
+    }
+
+    #[test]
+    fn real_walk_frame_loses_its_ground_shadow_but_keeps_the_pet() {
+        let _guard = THORVG_LOCK.lock().unwrap();
+        let root = assets_root();
+        if !root.join("catalog.json").is_file() {
+            return;
+        }
+        let catalog = Catalog::load(&root).unwrap();
+        let spec = catalog.walk_spec(1, Direction::Right).unwrap();
+        let scale = 2.0;
+        let mut renderer = Renderer::new().unwrap();
+        renderer.load(&spec, scale).unwrap();
+        renderer.render_frame(0.0).unwrap();
+        let (w, h) = renderer.size();
+        let mut frame = renderer.rgba8().to_vec();
+        let anchor = (spec.pet_anchor.0 * scale, spec.pet_anchor.1 * scale);
+
+        let near_anchor = |frame: &[u8]| {
+            let mut count = 0;
+            for y in 0..h {
+                for x in 0..w {
+                    let dx = x as f32 - anchor.0;
+                    let dy = y as f32 - anchor.1;
+                    if dx * dx + dy * dy <= 30.0 * 30.0 && alpha_at(frame, w as usize, x as usize, y as usize) > 0 {
+                        count += 1;
+                    }
+                }
+            }
+            count
+        };
+        let opaque = |frame: &[u8]| frame.chunks_exact(4).filter(|px| px[3] > 0).count();
+
+        let before_near = near_anchor(&frame);
+        let before_total = opaque(&frame);
+        strip_ground_shadow(&mut frame, w, h, anchor);
+        let after_near = near_anchor(&frame);
+        let after_total = opaque(&frame);
+
+        assert!(before_near > 0, "expected a ground shadow around the anchor");
+        assert_eq!(after_near, 0, "the ground shadow component must be erased");
+        assert!(
+            after_total > 100 && after_total < before_total,
+            "pet should remain ({before_total} -> {after_total})"
+        );
     }
 }

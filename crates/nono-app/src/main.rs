@@ -4,15 +4,17 @@
 //! winit event loop, and translate state-machine changes into window geometry,
 //! rendering and audio.  All behaviour lives in `nono-core`.
 
-use std::path::PathBuf;
-use std::time::{Duration, Instant};
+use std::collections::VecDeque;
+use std::path::{Path, PathBuf};
+use std::time::{Duration, Instant, SystemTime};
 
 use anyhow::{bail, Context, Result};
 use nono_core::{
-    config, Behavior, Bus, Catalog, Config, Direction, Event, Mode, PetState, Point, Rect,
+    config, speed, trail, Behavior, Bus, Catalog, Config, Direction, Event, Mode, PetState, Point,
+    Rect,
 };
 use nono_platform::{build_tray, create_pet_window, create_presenter, AudioPlayer, Presenter, TrayMenu};
-use nono_render::Renderer;
+use nono_render::{compose_trail, strip_ground_shadow, GhostFrame, Renderer};
 use rand::Rng;
 use winit::application::ApplicationHandler;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
@@ -25,6 +27,13 @@ use winit::window::{Window, WindowId};
 const ANIMATION_POLL: Duration = Duration::from_millis(16);
 /// Click vs drag threshold, in physical pixels.
 const DRAG_THRESHOLD: f32 = 5.0;
+/// Maximum number of afterimage frames kept as a safety net; the configured
+/// lifetime/interval normally keeps this far lower.
+const TRAIL_MAX_SAMPLES: usize = 48;
+/// While the trail is fading out after a walk, redraw at most at this rate.
+const TRAIL_FADE_FRAME: Duration = Duration::from_millis(40);
+/// Config hot-reload poll interval while the debug watcher is enabled.
+const CONFIG_POLL: Duration = Duration::from_millis(500);
 
 #[derive(Debug, Clone)]
 enum UserEvent {
@@ -37,6 +46,19 @@ struct DragState {
     press_cursor: PhysicalPosition<f64>,
     /// Accumulated cursor travel, used to tell clicks from drags.
     distance: f32,
+}
+
+/// A rendered walk frame kept for the motion trail.
+struct TrailSample {
+    /// Premultiplied RGBA8 of the tight (canvas-sized) pet frame, with the
+    /// ground shadow already removed so it does not leave its own trail.
+    pixels: Vec<u8>,
+    width: u32,
+    height: u32,
+    /// Pet feet position when this frame was drawn (physical screen px).
+    anchor: Point,
+    /// When this afterimage was spawned; its age drives the fade.
+    at: Instant,
 }
 
 struct App {
@@ -61,6 +83,21 @@ struct App {
     /// Kept on the same rect as `screen_bounds` for the behaviour scheduler.
     bounds: Rect,
     crop_buf: Vec<u8>,
+    /// Transparent stage with room for the walking afterimages.
+    trail_buf: Vec<u8>,
+    trail_samples: VecDeque<TrailSample>,
+    /// Padding of the last walking stage, kept while the ghosts fade out.
+    trail_stage_pad: u32,
+    /// Last time a frame was rendered (used to throttle the fade-out).
+    last_render_at: Instant,
+    /// Last applied window size (physical px), to avoid redundant resizes.
+    last_window_size: Option<(u32, u32)>,
+    /// Last applied click-through state.
+    last_interactive: Option<bool>,
+    /// Debug tuning: poll the config file and hot-reload the trail fields.
+    config_watch: bool,
+    config_watch_next: Instant,
+    config_mtime: Option<SystemTime>,
     last_anim_id: String,
     last_frame_key: i64,
     dirty: bool,
@@ -117,6 +154,15 @@ impl App {
             screen_bounds: Rect::new(0.0, 0.0, 1440.0, 900.0),
             bounds: Rect::new(0.0, 0.0, 1440.0, 900.0),
             crop_buf: Vec::new(),
+            trail_buf: Vec::new(),
+            trail_samples: VecDeque::new(),
+            trail_stage_pad: 0,
+            last_render_at: now,
+            last_window_size: None,
+            last_interactive: None,
+            config_watch: false,
+            config_watch_next: now,
+            config_mtime: None,
             last_anim_id: String::new(),
             last_frame_key: i64::MIN,
             dirty: true,
@@ -250,7 +296,6 @@ impl App {
             return;
         }
         let rect = self.visible_rect();
-        let dpi = self.state.dpi;
         let scale = self.state.scale * self.state.dpi;
         // Load BEFORE resizing the window: a cold Lottie parse on the first play
         // must not leave an empty, already-enlarged window on screen.
@@ -266,21 +311,7 @@ impl App {
                 return;
             }
         }
-        if let Some(window) = &self.window {
-            let _ = window.request_inner_size(PhysicalSize::new(rect.w as u32, rect.h as u32));
-            window.set_outer_position(PhysicalPosition::new(rect.x as i32, rect.y as i32));
-            // During big actions the window covers a lot of desktop; let clicks
-            // through.  Actions that hold their last frame stay interactive.
-            let interactive = self.state.mode != Mode::Action || !self.state.anim.auto_end;
-            if let Err(err) = window.set_cursor_hittest(interactive) {
-                tracing::debug!(%err, "set_cursor_hittest failed");
-            }
-        }
-        if let Some(presenter) = self.presenter.as_mut() {
-            if let Err(err) = presenter.resize(rect.w as u32, rect.h as u32, dpi as f64) {
-                tracing::warn!(%err, "presenter resize failed");
-            }
-        }
+        self.apply_window_geometry();
 
         self.audio.stop();
         if self.state.mode == Mode::Action {
@@ -315,35 +346,136 @@ impl App {
             tracing::warn!(%err, frame, "render failed");
             return;
         }
-        let (full_w, full_h) = self.renderer.size();
-        let desired = self.state.window_rect();
-        let visible = desired.intersect(self.screen_bounds);
-        let ox = ((visible.x - desired.x).round().max(0.0) as u32).min(full_w.saturating_sub(1));
-        let oy = ((visible.y - desired.y).round().max(0.0) as u32).min(full_h.saturating_sub(1));
-        let crop_w = (visible.w.round() as u32).min(full_w - ox).max(1);
-        let crop_h = (visible.h.round() as u32).min(full_h - oy).max(1);
-        let dpi = self.state.dpi as f64;
+
+        let walking = self.state.mode == Mode::Walk;
+        let lifetime = Duration::from_millis(self.config.trail_lifetime_ms as u64);
+        if !self.config.trail_enabled {
+            self.trail_samples.clear();
+        }
+        // Retire afterimages whose lifetime is over (also runs during the
+        // fade-out after the pet stopped walking).
+        while self
+            .trail_samples
+            .front()
+            .is_some_and(|sample| now.saturating_duration_since(sample.at) > lifetime)
         {
-            // Split borrows: the renderer is read, the crop buffer is written,
-            // and only then is the presenter called.
-            let Self { renderer, presenter, crop_buf, .. } = self;
-            let Some(presenter) = presenter.as_mut() else { return };
+            self.trail_samples.pop_front();
+        }
+        if walking {
+            // Remembered for the fade-out that continues after the walk stops.
+            self.trail_stage_pad = trail::pad_px(
+                self.state.walk_speed(),
+                self.config.trail_lifetime_ms,
+                2.0,
+            );
+        }
+        let trail_on = self.config.trail_enabled && (walking || !self.trail_samples.is_empty());
+        self.apply_window_geometry();
+
+        let (full_w, full_h) = self.renderer.size();
+        let pad = self.trail_pad_px();
+        let stage_w = full_w + pad * 2;
+        let stage_h = full_h + pad * 2;
+        let tight = self.state.window_rect();
+        let desired = Rect::new(
+            tight.x - pad as f32,
+            tight.y - pad as f32,
+            stage_w as f32,
+            stage_h as f32,
+        );
+        let visible = desired.intersect(self.screen_bounds);
+        let ox = ((visible.x - desired.x).round().max(0.0) as u32).min(stage_w.saturating_sub(1));
+        let oy = ((visible.y - desired.y).round().max(0.0) as u32).min(stage_h.saturating_sub(1));
+        let crop_w = (visible.w.round() as u32).min(stage_w - ox).max(1);
+        let crop_h = (visible.h.round() as u32).min(stage_h - oy).max(1);
+        let dpi = self.state.dpi as f64;
+        let anchor = self.state.anchor;
+        let lifetime_secs = self.config.trail_lifetime_ms as f32 / 1000.0;
+        let opacity = self.config.trail_opacity;
+        {
+            // Split borrows: the renderer/history are read, the stage and crop
+            // buffers are written, and only then is the presenter called.
+            let Self { renderer, presenter, crop_buf, trail_buf, trail_samples, .. } = self;
             let full = renderer.rgba8();
-            if ox == 0 && oy == 0 && crop_w == full_w && crop_h == full_h {
-                if let Err(err) = presenter.present(full, full_w, full_h, dpi) {
-                    tracing::warn!(%err, "present failed");
+            if trail_on {
+                let mut ghosts = Vec::with_capacity(trail_samples.len());
+                for sample in trail_samples.iter() {
+                    if sample.width != full_w || sample.height != full_h {
+                        continue;
+                    }
+                    let age = now.saturating_duration_since(sample.at).as_secs_f32();
+                    let alpha = trail::alpha_at(age, lifetime_secs, opacity);
+                    if alpha <= 0.002 {
+                        continue;
+                    }
+                    ghosts.push(GhostFrame {
+                        pixels: &sample.pixels,
+                        width: sample.width,
+                        height: sample.height,
+                        left: pad as i32 + (sample.anchor.x - anchor.x).round() as i32,
+                        top: pad as i32 + (sample.anchor.y - anchor.y).round() as i32,
+                        alpha,
+                    });
                 }
+                // `compose_trail` draws in order, so the newest snapshot ends
+                // up over the older (fainter) ones.
+                trail_buf.resize(stage_w as usize * stage_h as usize * 4, 0);
+                compose_trail(
+                    trail_buf,
+                    stage_w,
+                    stage_h,
+                    full,
+                    full_w,
+                    full_h,
+                    pad as i32,
+                    pad as i32,
+                    &ghosts,
+                );
+                Self::present_cropped(
+                    presenter, crop_buf, trail_buf, stage_w, stage_h, ox, oy, crop_w, crop_h, dpi,
+                );
             } else {
-                Self::crop_into(full, full_w, ox, oy, crop_w, crop_h, crop_buf);
-                if let Err(err) = presenter.present(crop_buf, crop_w, crop_h, dpi) {
-                    tracing::warn!(%err, "present failed");
+                Self::present_cropped(
+                    presenter, crop_buf, full, full_w, full_h, ox, oy, crop_w, crop_h, dpi,
+                );
+            }
+        }
+
+        // Spawn a new afterimage at the configured interval while walking.
+        if self.config.trail_enabled && walking {
+            let interval = Duration::from_millis(self.config.trail_interval_ms as u64);
+            let due = self
+                .trail_samples
+                .back()
+                .map_or(true, |sample| now.saturating_duration_since(sample.at) >= interval);
+            let moved = self
+                .trail_samples
+                .back()
+                .map_or(true, |sample| sample.anchor.distance(anchor) >= 0.5);
+            if due && moved {
+                let mut pixels = self.renderer.rgba8().to_vec();
+                // The ground shadow is not part of the character; strip it so
+                // the trail does not leave a second shadow smear.
+                let anchor_in_frame = (anchor.x - tight.x, anchor.y - tight.y);
+                strip_ground_shadow(&mut pixels, full_w, full_h, anchor_in_frame);
+                self.trail_samples.push_back(TrailSample {
+                    pixels,
+                    width: full_w,
+                    height: full_h,
+                    anchor,
+                    at: now,
+                });
+                while self.trail_samples.len() > TRAIL_MAX_SAMPLES {
+                    self.trail_samples.pop_front();
                 }
             }
         }
+
         let width = crop_w;
         let height = crop_h;
         self.last_frame_key = frame_key(frame);
         self.dirty = false;
+        self.last_render_at = started;
         self.render_count += 1;
         let elapsed_ms = started.elapsed().as_secs_f64() * 1000.0;
         self.render_time_sum_ms += elapsed_ms;
@@ -358,15 +490,106 @@ impl App {
         }
     }
 
+    /// Copies a (possibly clipped) part of `src` into the presenter.
+    fn present_cropped(
+        presenter: &mut Option<Box<dyn Presenter>>,
+        crop_buf: &mut Vec<u8>,
+        src: &[u8],
+        src_w: u32,
+        src_h: u32,
+        ox: u32,
+        oy: u32,
+        crop_w: u32,
+        crop_h: u32,
+        dpi: f64,
+    ) {
+        let Some(presenter) = presenter.as_mut() else { return };
+        if ox == 0 && oy == 0 && crop_w == src_w && crop_h == src_h {
+            if let Err(err) = presenter.present(src, src_w, src_h, dpi) {
+                tracing::warn!(%err, "present failed");
+            }
+        } else {
+            Self::crop_into(src, src_w, ox, oy, crop_w, crop_h, crop_buf);
+            if let Err(err) = presenter.present(crop_buf, crop_w, crop_h, dpi) {
+                tracing::warn!(%err, "present failed");
+            }
+        }
+    }
+
+    /// Are there afterimages still fading out after the walk stopped?
+    fn trail_fading(&self) -> bool {
+        self.config.trail_enabled
+            && self.state.mode != Mode::Walk
+            && !self.trail_samples.is_empty()
+    }
+
+    /// Transparent margin (physical px) the stage needs for afterimages.
+    fn trail_pad_px(&self) -> u32 {
+        if !self.config.trail_enabled {
+            return 0;
+        }
+        if self.state.mode == Mode::Walk {
+            trail::pad_px(self.state.walk_speed(), self.config.trail_lifetime_ms, 2.0)
+        } else if self.trail_samples.is_empty() {
+            0
+        } else {
+            // Keep the walking stage size while the last ghosts fade out.
+            self.trail_stage_pad
+        }
+    }
+
+    /// Window rect including the transparent trail margin.
+    fn stage_rect(&self) -> Rect {
+        self.state.window_rect().outset(self.trail_pad_px() as f32)
+    }
+
+    /// Applies the current stage rect to the window and the presenter layer.
+    fn apply_window_geometry(&mut self) {
+        let rect = self.visible_rect();
+        let want_w = rect.w.round().max(1.0) as u32;
+        let want_h = rect.h.round().max(1.0) as u32;
+        if self.last_window_size != Some((want_w, want_h)) {
+            if let Some(window) = &self.window {
+                if window.inner_size() != PhysicalSize::new(want_w, want_h) {
+                    let _ = window.request_inner_size(PhysicalSize::new(want_w, want_h));
+                }
+            }
+            if let Some(presenter) = self.presenter.as_mut() {
+                if let Err(err) = presenter.resize(want_w, want_h, self.state.dpi as f64) {
+                    tracing::warn!(%err, "presenter resize failed");
+                }
+            }
+            self.last_window_size = Some((want_w, want_h));
+        }
+        if let Some(window) = &self.window {
+            let want_pos = PhysicalPosition::new(rect.x.round() as i32, rect.y.round() as i32);
+            if window.outer_position().ok() != Some(want_pos) {
+                window.set_outer_position(want_pos);
+            }
+            // A trail-sized transparent window would swallow clicks far away
+            // from the pet, so walking with the trail on is click-through (like
+            // the large action windows).  Actions holding their last frame stay
+            // interactive.
+            let interactive = self.trail_pad_px() == 0
+                && (self.state.mode != Mode::Action || !self.state.anim.auto_end);
+            if self.last_interactive != Some(interactive) {
+                if let Err(err) = window.set_cursor_hittest(interactive) {
+                    tracing::debug!(%err, "set_cursor_hittest failed");
+                }
+                self.last_interactive = Some(interactive);
+            }
+        }
+    }
+
     fn position_window(&self) {
         let Some(window) = &self.window else { return };
         let rect = self.visible_rect();
         window.set_outer_position(PhysicalPosition::new(rect.x as i32, rect.y as i32));
     }
 
-    /// The part of the animation window that fits on the usable screen.
+    /// The part of the stage that fits on the usable screen.
     fn visible_rect(&self) -> Rect {
-        self.state.window_rect().intersect(self.screen_bounds)
+        self.stage_rect().intersect(self.screen_bounds)
     }
 
     /// Largest extent of the pet's *silhouette* around its anchor, over all
@@ -419,25 +642,15 @@ impl App {
     fn reload_preserving_frame(&mut self, now: Instant) {
         self.bounds = self.compute_roam_bounds();
         self.state.clamp_to(self.bounds);
-        let rect = self.visible_rect();
-        let dpi = self.state.dpi;
-        if let Some(window) = &self.window {
-            let _ = window.request_inner_size(PhysicalSize::new(rect.w as u32, rect.h as u32));
-            window.set_outer_position(PhysicalPosition::new(rect.x as i32, rect.y as i32));
-            let interactive = self.state.mode != Mode::Action || !self.state.anim.auto_end;
-            if let Err(err) = window.set_cursor_hittest(interactive) {
-                tracing::debug!(%err, "set_cursor_hittest failed");
-            }
-        }
+        // History frames have the old pixel size and would be misaligned.
+        self.trail_samples.clear();
+        self.trail_stage_pad = 0;
+        self.last_window_size = None;
         let scale = self.state.scale * self.state.dpi;
         if let Err(err) = self.renderer.load(&self.state.anim, scale) {
             tracing::warn!(%err, "reloading the animation failed");
         }
-        if let Some(presenter) = self.presenter.as_mut() {
-            if let Err(err) = presenter.resize(rect.w as u32, rect.h as u32, dpi as f64) {
-                tracing::warn!(%err, "presenter resize failed");
-            }
-        }
+        self.apply_window_geometry();
         self.last_anim_id = self.state.anim.id.clone();
         self.last_frame_key = i64::MIN;
         self.dirty = true;
@@ -576,11 +789,13 @@ impl App {
         let distance = target.distance(self.state.anchor);
         let close_enough = 60.0 * self.state.dpi;
         if distance > close_enough {
-            let speed = 140.0 * self.state.dpi;
+            let speed = self.config.effective_follow_speed() * self.state.dpi;
             self.state.start_walk(&self.catalog, target, speed, now);
         } else {
             if self.state.mode == Mode::Walk {
                 self.state.idle(&self.catalog, now);
+                // Drop the trail stage even when idle animation is turned off.
+                self.dirty = true;
             }
             let dir = Direction::from_delta(
                 cursor.x - self.state.anchor.x,
@@ -627,6 +842,10 @@ impl App {
         self.config.anchor = Some(self.state.anchor);
         if let Err(err) = self.config.save(&self.config_path) {
             tracing::warn!(%err, path = %self.config_path.display(), "saving config failed");
+        } else {
+            // Our own write should not look like an external edit to the
+            // hot-reload watcher.
+            self.config_mtime = Self::config_mtime(&self.config_path);
         }
     }
 
@@ -664,6 +883,39 @@ impl App {
                 self.save_config();
             }
             MENU_FOLLOW => self.toggle_follow(now),
+            MENU_TRAIL_ENABLED => self.set_trail_enabled(!self.config.trail_enabled, now),
+            MENU_TRAIL_PREVIEW => self.preview_trail(now),
+            MENU_SPEED_MOVE_DOWN => self.nudge_move_speed(-speed::STEP, now),
+            MENU_SPEED_MOVE_UP => self.nudge_move_speed(speed::STEP, now),
+            MENU_SPEED_FOLLOW_DOWN => self.nudge_follow_speed(-speed::STEP, now),
+            MENU_SPEED_FOLLOW_UP => self.nudge_follow_speed(speed::STEP, now),
+            MENU_SPEED_IDLE_DOWN => self.nudge_idle_speed(-speed::STEP, now),
+            MENU_SPEED_IDLE_UP => self.nudge_idle_speed(speed::STEP, now),
+            MENU_SPEED_FOLLOW_GLOBAL => self.toggle_follow_global_speed(now),
+            MENU_SPEED_IDLE_GLOBAL => self.toggle_idle_global_speed(now),
+            MENU_SPEED_RESET => self.reset_speeds(now),
+            MENU_TRAIL_INTERVAL_DOWN => {
+                self.nudge_trail_interval(-(trail::INTERVAL_STEP_MS as i32), now)
+            }
+            MENU_TRAIL_INTERVAL_UP => {
+                self.nudge_trail_interval(trail::INTERVAL_STEP_MS as i32, now)
+            }
+            MENU_TRAIL_LIFETIME_DOWN => {
+                self.nudge_trail_lifetime(-(trail::LIFETIME_STEP_MS as i32), now)
+            }
+            MENU_TRAIL_LIFETIME_UP => {
+                self.nudge_trail_lifetime(trail::LIFETIME_STEP_MS as i32, now)
+            }
+            MENU_TRAIL_OPACITY_DOWN => {
+                self.nudge_trail_opacity(-trail::OPACITY_STEP, now)
+            }
+            MENU_TRAIL_OPACITY_UP => self.nudge_trail_opacity(trail::OPACITY_STEP, now),
+            MENU_TRAIL_RESET => self.reset_trail(now),
+            MENU_TRAIL_RELOAD => {
+                self.reload_tuning_from_disk(now);
+            }
+            MENU_TRAIL_OPEN_CONFIG => self.open_config_file(now),
+            MENU_TRAIL_WATCH => self.toggle_trail_watch(now),
             MENU_IDLE_ANIMATION => {
                 self.config.idle_animation = !self.config.idle_animation;
                 if let Some(tray) = &self.tray {
@@ -702,6 +954,10 @@ impl App {
             return;
         }
         self.config.form = form;
+        // A different form has different walk canvases; old snapshots would not
+        // line up and are simply dropped.
+        self.trail_samples.clear();
+        self.trail_stage_pad = 0;
         self.bounds = self.compute_roam_bounds();
         self.state.clamp_to(self.bounds);
         self.sync_animation(now, false, "state-change");
@@ -721,6 +977,308 @@ impl App {
         self.bus.publish(Event::SetScale { scale: self.config.scale });
         if let Some(tray) = &self.tray {
             tray.sync_checks(&self.config);
+        }
+    }
+
+    /// Walks a short distance so the current trail settings can be judged
+    /// without waiting for the next wander tick.
+    fn preview_trail(&mut self, now: Instant) {
+        if self.follow_until.is_some() {
+            self.stop_follow(now);
+        }
+        let dpi = self.state.dpi;
+        let distance = 180.0 * dpi;
+        let dir = if self.state.anchor.x + distance + 4.0 <= self.bounds.right() {
+            1.0
+        } else {
+            -1.0
+        };
+        let target = Point::new(self.state.anchor.x + distance * dir, self.state.anchor.y)
+            .clamp(self.bounds);
+        if target.distance(self.state.anchor) < 24.0 {
+            tracing::debug!("no room to preview the trail");
+            return;
+        }
+        self.state.start_walk(
+            &self.catalog,
+            target,
+            self.config.effective_idle_speed() * dpi,
+            now,
+        );
+        self.sync_animation(now, false, "trail-preview");
+        self.render_now(now);
+    }
+
+    /// Nudges the global movement speed (logical pt/s).
+    fn nudge_move_speed(&mut self, delta: f32, now: Instant) {
+        let next = speed::sanitize(self.config.move_speed + delta);
+        if (next - self.config.move_speed).abs() < 1e-4 {
+            return;
+        }
+        self.config.move_speed = next;
+        self.finish_speed_change(now, true);
+    }
+
+    /// Nudges the follow speed, creating an override if it was using global.
+    fn nudge_follow_speed(&mut self, delta: f32, now: Instant) {
+        let next = speed::sanitize(self.config.effective_follow_speed() + delta);
+        if (next - self.config.effective_follow_speed()).abs() < 1e-4 {
+            return;
+        }
+        self.config.follow_speed = Some(next);
+        self.finish_speed_change(now, true);
+    }
+
+    /// Nudges the idle/free-roam speed, creating an override if needed.
+    fn nudge_idle_speed(&mut self, delta: f32, now: Instant) {
+        let next = speed::sanitize(self.config.effective_idle_speed() + delta);
+        if (next - self.config.effective_idle_speed()).abs() < 1e-4 {
+            return;
+        }
+        self.config.idle_speed = Some(next);
+        self.finish_speed_change(now, true);
+    }
+
+    /// Toggles "follow uses the global speed"; unchecking starts an override at
+    /// the current effective value so the pet does not jump.
+    fn toggle_follow_global_speed(&mut self, now: Instant) {
+        self.config.follow_speed = if self.config.follow_speed.is_none() {
+            Some(self.config.effective_follow_speed())
+        } else {
+            None
+        };
+        self.finish_speed_change(now, true);
+    }
+
+    fn toggle_idle_global_speed(&mut self, now: Instant) {
+        self.config.idle_speed = if self.config.idle_speed.is_none() {
+            Some(self.config.effective_idle_speed())
+        } else {
+            None
+        };
+        self.finish_speed_change(now, true);
+    }
+
+    fn reset_speeds(&mut self, now: Instant) {
+        self.config.move_speed = speed::DEFAULT_GLOBAL;
+        self.config.follow_speed = speed::DEFAULT_FOLLOW;
+        self.config.idle_speed = speed::DEFAULT_IDLE;
+        self.finish_speed_change(now, true);
+    }
+
+    /// Sanitises, applies and optionally persists the three speed values.
+    fn finish_speed_change(&mut self, _now: Instant, persist: bool) {
+        self.config.move_speed = speed::sanitize(self.config.move_speed);
+        self.config.follow_speed = speed::sanitize_override(self.config.follow_speed);
+        self.config.idle_speed = speed::sanitize_override(self.config.idle_speed);
+        self.behavior
+            .set_wander_speed(self.config.effective_idle_speed());
+        if self.state.mode == Mode::Walk {
+            let speed = if self.follow_until.is_some() {
+                self.config.effective_follow_speed()
+            } else {
+                self.config.effective_idle_speed()
+            };
+            self.state.set_walk_speed(speed * self.state.dpi);
+        }
+        if persist {
+            self.save_config();
+        }
+        self.bus.publish(Event::SetSpeed {
+            global: self.config.move_speed,
+            follow: self.config.follow_speed,
+            idle: self.config.idle_speed,
+        });
+        if let Some(tray) = &self.tray {
+            tray.sync_checks(&self.config);
+        }
+        tracing::debug!(
+            global = self.config.move_speed,
+            follow = ?self.config.follow_speed,
+            idle = ?self.config.idle_speed,
+            "movement speed changed"
+        );
+    }
+
+    /// Turns the walking afterimage on or off.
+    fn set_trail_enabled(&mut self, enabled: bool, now: Instant) {
+        if self.config.trail_enabled == enabled {
+            return;
+        }
+        self.config.trail_enabled = enabled;
+        if !enabled {
+            self.trail_samples.clear();
+            self.trail_stage_pad = 0;
+        }
+        self.finish_trail_change(now, true);
+    }
+
+    /// Nudges the spawn interval by `delta_ms` (negative = denser).
+    fn nudge_trail_interval(&mut self, delta_ms: i32, now: Instant) {
+        let next = (self.config.trail_interval_ms as i64 + delta_ms as i64).clamp(
+            trail::MIN_INTERVAL_MS as i64,
+            trail::MAX_INTERVAL_MS as i64,
+        ) as u32;
+        if next == self.config.trail_interval_ms {
+            return;
+        }
+        self.config.trail_interval_ms = next;
+        self.finish_trail_change(now, true);
+    }
+
+    /// Nudges the lifetime by `delta_ms` (negative = shorter).
+    fn nudge_trail_lifetime(&mut self, delta_ms: i32, now: Instant) {
+        let next = (self.config.trail_lifetime_ms as i64 + delta_ms as i64).clamp(
+            trail::MIN_LIFETIME_MS as i64,
+            trail::MAX_LIFETIME_MS as i64,
+        ) as u32;
+        if next == self.config.trail_lifetime_ms {
+            return;
+        }
+        self.config.trail_lifetime_ms = next;
+        self.finish_trail_change(now, true);
+    }
+
+    /// Nudges the peak opacity (negative = fainter).
+    fn nudge_trail_opacity(&mut self, delta: f32, now: Instant) {
+        let next = trail::sanitize_opacity(self.config.trail_opacity + delta);
+        if (next - self.config.trail_opacity).abs() < 1e-4 {
+            return;
+        }
+        self.config.trail_opacity = next;
+        self.finish_trail_change(now, true);
+    }
+
+    /// Restores the built-in default trail (enabled, 120/640 ms, 22%).
+    fn reset_trail(&mut self, now: Instant) {
+        self.config.trail_enabled = trail::DEFAULT_ENABLED;
+        self.config.trail_interval_ms = trail::DEFAULT_INTERVAL_MS;
+        self.config.trail_lifetime_ms = trail::DEFAULT_LIFETIME_MS;
+        self.config.trail_opacity = trail::DEFAULT_OPACITY;
+        self.finish_trail_change(now, true);
+    }
+
+    /// Re-sanitises the values, applies the new stage size immediately and
+    /// (when `persist`) writes them to the config file.
+    fn finish_trail_change(&mut self, now: Instant, persist: bool) {
+        let (interval, lifetime) =
+            trail::sanitize(self.config.trail_interval_ms, self.config.trail_lifetime_ms);
+        self.config.trail_interval_ms = interval;
+        self.config.trail_lifetime_ms = lifetime;
+        self.config.trail_opacity =
+            (trail::sanitize_opacity(self.config.trail_opacity) * 100.0).round() / 100.0;
+        if !self.config.trail_enabled {
+            self.trail_samples.clear();
+            self.trail_stage_pad = 0;
+        }
+        if self.state.mode == Mode::Walk {
+            self.trail_stage_pad = trail::pad_px(
+                self.state.walk_speed(),
+                self.config.trail_lifetime_ms,
+                2.0,
+            );
+        }
+        self.dirty = true;
+        self.render_now(now);
+        if persist {
+            self.save_config();
+        }
+        self.bus.publish(Event::SetTrail {
+            enabled: self.config.trail_enabled,
+            interval_ms: self.config.trail_interval_ms,
+            lifetime_ms: self.config.trail_lifetime_ms,
+            opacity: self.config.trail_opacity,
+        });
+        if let Some(tray) = &self.tray {
+            tray.sync_checks(&self.config);
+        }
+        tracing::debug!(
+            enabled = self.config.trail_enabled,
+            interval_ms = self.config.trail_interval_ms,
+            lifetime_ms = self.config.trail_lifetime_ms,
+            opacity = self.config.trail_opacity,
+            "trail changed"
+        );
+    }
+
+    /// Reads the latest trail fields from `config.toml` without touching the
+    /// other settings.
+    /// Reads the latest trail and speed fields from `config.toml` without
+    /// touching the other settings.
+    fn reload_tuning_from_disk(&mut self, now: Instant) -> bool {
+        match Config::load_strict(&self.config_path) {
+            Ok(loaded) => {
+                self.config.trail_enabled = loaded.trail_enabled;
+                self.config.trail_interval_ms = loaded.trail_interval_ms;
+                self.config.trail_lifetime_ms = loaded.trail_lifetime_ms;
+                self.config.trail_opacity = loaded.trail_opacity;
+                self.config.move_speed = loaded.move_speed;
+                self.config.follow_speed = loaded.follow_speed;
+                self.config.idle_speed = loaded.idle_speed;
+                self.config_mtime = Self::config_mtime(&self.config_path);
+                self.finish_trail_change(now, false);
+                self.finish_speed_change(now, false);
+                true
+            }
+            Err(err) => {
+                tracing::warn!(%err, path = %self.config_path.display(), "tuning reload failed, keeping current values");
+                false
+            }
+        }
+    }
+
+    /// Enables/disables polling of the config file for live tuning.
+    fn toggle_trail_watch(&mut self, now: Instant) {
+        self.config_watch = !self.config_watch;
+        if self.config_watch {
+            self.config_mtime = Self::config_mtime(&self.config_path);
+            self.config_watch_next = now + CONFIG_POLL;
+        }
+        if let Some(tray) = &self.tray {
+            tray.trail_watch.set_checked(self.config_watch);
+        }
+        tracing::info!(enabled = self.config_watch, "config hot reload");
+    }
+
+    /// Polls the config file and applies changed trail values.
+    fn poll_config_watch(&mut self, now: Instant) {
+        self.config_watch_next = now + CONFIG_POLL;
+        let Some(mtime) = Self::config_mtime(&self.config_path) else {
+            return;
+        };
+        if Some(mtime) == self.config_mtime {
+            return;
+        }
+        self.config_mtime = Some(mtime);
+        if self.reload_tuning_from_disk(now) {
+            tracing::info!("trail/speed settings reloaded from config");
+        }
+    }
+
+    fn config_mtime(path: &Path) -> Option<SystemTime> {
+        std::fs::metadata(path).ok()?.modified().ok()
+    }
+
+    /// Opens `config.toml` in the default editor and starts the hot-reload
+    /// watcher so edits show up live.
+    fn open_config_file(&mut self, now: Instant) {
+        self.save_config();
+        let path = self.config_path.clone();
+        let spawned = if cfg!(target_os = "macos") {
+            std::process::Command::new("open").arg(&path).spawn()
+        } else if cfg!(target_os = "windows") {
+            std::process::Command::new("cmd")
+                .args(["/C", "start", ""])
+                .arg(&path)
+                .spawn()
+        } else {
+            std::process::Command::new("xdg-open").arg(&path).spawn()
+        };
+        if let Err(err) = spawned {
+            tracing::warn!(%err, path = %path.display(), "could not open the config file");
+        }
+        if !self.config_watch {
+            self.toggle_trail_watch(now);
         }
     }
 
@@ -777,10 +1335,13 @@ impl App {
         let now = Instant::now();
         let idle = self.state.mode == Mode::Idle;
         let animating = self.state.is_animating() && (!idle || self.config.idle_animation);
+        let fading = self.trail_fading();
         let next = if self.follow_until.is_some() {
             now + Duration::from_millis(50)
-        } else if animating {
+        } else if animating || fading {
             now + ANIMATION_POLL
+        } else if self.config_watch {
+            now + CONFIG_POLL
         } else if self.state.mode == Mode::Action && !self.state.anim.auto_end {
             // Holding the last frame of charge/shutdown: sleep until the user
             // interacts (menu, click, drag) — all of which wake the loop.
@@ -929,6 +1490,10 @@ impl ApplicationHandler<UserEvent> for App {
         }
         let now = Instant::now();
 
+        if self.config_watch && now >= self.config_watch_next {
+            self.poll_config_watch(now);
+        }
+
         if let Some((at, spec)) = self.scheduled_play.clone() {
             if now >= at {
                 self.scheduled_play = None;
@@ -946,6 +1511,11 @@ impl ApplicationHandler<UserEvent> for App {
         }
         if tick.moved {
             self.position_window();
+            if self.state.mode == Mode::Idle {
+                // Start the trail fade-out and force one render even when idle
+                // animation is turned off (otherwise the window would stay big).
+                self.dirty = true;
+            }
         }
 
         let mut following = false;
@@ -968,8 +1538,11 @@ impl ApplicationHandler<UserEvent> for App {
 
         let idle = self.state.mode == Mode::Idle;
         let animating = self.state.is_animating() && (!idle || self.config.idle_animation);
-        if animating || self.dirty {
-            if self.frame_due(now) {
+        let fading = self.trail_fading();
+        let fade_due = fading
+            && now.saturating_duration_since(self.last_render_at) >= TRAIL_FADE_FRAME;
+        if animating || fading || self.dirty {
+            if fade_due || self.frame_due(now) {
                 self.render_now(now);
             }
         }
@@ -977,6 +1550,11 @@ impl ApplicationHandler<UserEvent> for App {
     }
 
     fn exiting(&mut self, _event_loop: &ActiveEventLoop) {
+        // Pick up a config edit made just before quitting instead of writing
+        // the old trail values back over it.
+        if self.config_watch {
+            self.poll_config_watch(Instant::now());
+        }
         self.save_config();
         self.audio.stop();
         tracing::info!("bye");

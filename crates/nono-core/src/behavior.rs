@@ -19,6 +19,8 @@ pub struct Behavior {
     pub enabled: bool,
     min_idle: f32,
     max_idle: f32,
+    /// Idle/free-roam speed in logical pt/s.
+    wander_speed: f32,
     next_decision: Instant,
     rng: StdRng,
 }
@@ -33,6 +35,7 @@ impl Behavior {
             enabled: config.wander,
             min_idle: config.roam_min_secs,
             max_idle: config.roam_max_secs,
+            wander_speed: config.effective_idle_speed(),
             next_decision: now,
             rng: StdRng::seed_from_u64(seed),
         };
@@ -42,6 +45,17 @@ impl Behavior {
 
     pub fn set_enabled(&mut self, enabled: bool) {
         self.enabled = enabled;
+    }
+
+    /// Updates the speed used by "wander a bit" walks (logical pt/s).
+    pub fn set_wander_speed(&mut self, speed: f32) {
+        if speed > 0.0 {
+            self.wander_speed = speed;
+        }
+    }
+
+    pub fn wander_speed(&self) -> f32 {
+        self.wander_speed
     }
 
     /// Applied when the user changes the roaming interval in the menu.
@@ -98,8 +112,7 @@ impl Behavior {
 
         if roll < 0.55 {
             if let Some(target) = self.pick_walk_target(state, bounds) {
-                let speed = 60.0 * state.dpi; // ~60 logical px/s
-                state.start_walk(catalog, target, speed, now);
+                state.start_walk(catalog, target, self.wander_speed * state.dpi, now);
                 return true;
             }
         }
@@ -145,6 +158,25 @@ impl Behavior {
 mod tests {
     use super::*;
     use std::path::Path;
+
+    #[test]
+    fn wander_speed_uses_the_idle_override_or_global() {
+        let start = Instant::now();
+        let global = Config::default();
+        let behavior = Behavior::with_seed(start, &global, 7);
+        assert!((behavior.wander_speed() - 60.0).abs() < 1e-6);
+
+        let mut config = Config::default();
+        config.move_speed = 90.0;
+        config.idle_speed = None;
+        assert!((Behavior::with_seed(start, &config, 7).wander_speed() - 90.0).abs() < 1e-6);
+
+        config.idle_speed = Some(120.0);
+        let mut behavior = Behavior::with_seed(start, &config, 7);
+        assert!((behavior.wander_speed() - 120.0).abs() < 1e-6);
+        behavior.set_wander_speed(150.0);
+        assert!((behavior.wander_speed() - 150.0).abs() < 1e-6);
+    }
 
     #[test]
     fn disabled_behavior_never_interrupts_idle() {

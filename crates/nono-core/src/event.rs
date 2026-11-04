@@ -33,6 +33,14 @@ pub enum Event {
     ChangeState { state: String },
     ChangeForm { form: u8 },
     SetScale { scale: f32 },
+    SetTrail { enabled: bool, interval_ms: u32, lifetime_ms: u32, opacity: f32 },
+    SetSpeed {
+        global: f32,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        follow: Option<f32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        idle: Option<f32>,
+    },
 
     // ── assets ────────────────────────────────────────────────────
     AssetLoaded { asset_id: String },
@@ -144,6 +152,22 @@ mod tests {
                 emotion: Some("happy".into()),
                 suggest_anim: Some("talk".into()),
             }
+        );
+
+        let trail: Event = serde_json::from_str(
+            r#"{"type":"SetTrail","enabled":true,"interval_ms":120,"lifetime_ms":640,"opacity":0.22}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            trail,
+            Event::SetTrail { enabled: true, interval_ms: 120, lifetime_ms: 640, opacity: 0.22 }
+        );
+
+        let speed: Event =
+            serde_json::from_str(r#"{"type":"SetSpeed","global":90.0,"idle":120.0}"#).unwrap();
+        assert_eq!(
+            speed,
+            Event::SetSpeed { global: 90.0, follow: None, idle: Some(120.0) }
         );
     }
 
