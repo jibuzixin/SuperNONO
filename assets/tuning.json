@@ -64,13 +64,17 @@
       "frames": 74
     },
     "form4/action/boot": {
-      "scale": 1.15
+      "scale": 1.15,
+      "offset_start": [
+        1.1,
+        4.0
+      ]
     },
     "form4/action/ball": {
       "scale": 1.15
     },
     "form4/action/cube": {
-      "scale": 1.09
+      "scale": 1.13
     }
   }
 }
