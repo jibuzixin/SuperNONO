@@ -75,6 +75,8 @@ pub struct Renderer {
     pixel_scale: f32,
     frame_count: u32,
     tint: Option<[u8; 3]>,
+    spec_anchor: (f32, f32),
+    body_hit: Option<(f32, f32, f32)>,
     /// Where generated tinted Lottie copies are cached.
     tint_cache_dir: Option<PathBuf>,
     engine: Box<Thorvg>,
@@ -106,6 +108,8 @@ impl Renderer {
             pixel_scale: 1.0,
             frame_count: 1,
             tint: None,
+            spec_anchor: (0.0, 0.0),
+            body_hit: None,
             tint_cache_dir: None,
             engine,
         })
@@ -145,6 +149,139 @@ impl Renderer {
         }
     }
 
+    /// Body hit circle in canvas units relative to the pet anchor
+    /// `(dx, dy, radius)`.  Computed from the tinted body pixels, so it follows
+    /// the current pose and ignores transparent areas/fins/props.
+    pub fn body_hit(&self) -> Option<(f32, f32, f32)> {
+        self.body_hit
+    }
+
+    fn update_body_hit(&mut self) {
+        self.body_hit = None;
+        let w = self.width as usize;
+        let h = self.height as usize;
+        if w == 0 || h == 0 {
+            return;
+        }
+        let tn = match self.tint {
+            Some(t) => {
+                let m = t[0].max(t[1]).max(t[2]) as f32;
+                if m < 32.0 {
+                    return;
+                }
+                Some([t[0] as f32 / m, t[1] as f32 / m, t[2] as f32 / m])
+            }
+            // No tint: use the white body (the solid/ear-root fills are white).
+            None => None,
+        };
+        let bytes = self.rgba8();
+        let stride = 4usize;
+        let gw = (w + stride - 1) / stride;
+        let gh = (h + stride - 1) / stride;
+        let mut mask = vec![false; gw * gh];
+        let mut any = false;
+        for gy in 0..gh {
+            let y = gy * stride;
+            if y >= h {
+                break;
+            }
+            let row = y * w * 4;
+            for gx in 0..gw {
+                let x = gx * stride;
+                if x >= w {
+                    break;
+                }
+                let i = row + x * 4;
+                if bytes[i + 3] < 200 {
+                    continue;
+                }
+                let r = bytes[i] as f32;
+                let g = bytes[i + 1] as f32;
+                let b = bytes[i + 2] as f32;
+                let m = r.max(g).max(b);
+                let hit = if let Some(tn) = tn {
+                    if m < 24.0 {
+                        false
+                    } else {
+                        let p = [r / m, g / m, b / m];
+                        p[0] * tn[0] + p[1] * tn[1] + p[2] * tn[2] >= 0.985
+                    }
+                } else {
+                    // Untinted: white body + grey shading + grey outline, so
+                    // fragmented pure-white highlights don't split the body.
+                    let mn = r.min(g).min(b);
+                    let mx = r.max(g).max(b);
+                    mx >= 80.0 && (mx - mn) < 14.0
+                };
+                if hit {
+                    mask[gy * gw + gx] = true;
+                    any = true;
+                }
+            }
+        }
+        if !any {
+            return;
+        }
+        // Largest connected component near the pet anchor (the body); effects,
+        // bubbles and props are either smaller or farther away.
+        let scale = self.pixel_scale.max(0.01);
+        let anchor = self.spec_anchor;
+        let mut seen = vec![false; gw * gh];
+        let mut best: Option<(usize, (usize, usize, usize, usize))> = None;
+        for gy in 0..gh {
+            for gx in 0..gw {
+                let idx = gy * gw + gx;
+                if !mask[idx] || seen[idx] {
+                    continue;
+                }
+                let mut queue = std::collections::VecDeque::new();
+                queue.push_back((gx, gy));
+                seen[idx] = true;
+                let (mut min_x, mut min_y, mut max_x, mut max_y) = (gx, gy, gx, gy);
+                let mut count = 0usize;
+                while let Some((cx, cy)) = queue.pop_front() {
+                    count += 1;
+                    min_x = min_x.min(cx);
+                    min_y = min_y.min(cy);
+                    max_x = max_x.max(cx);
+                    max_y = max_y.max(cy);
+                    for (dx, dy) in [(-1isize, 0isize), (1, 0), (0, -1), (0, 1)] {
+                        let nx = cx as isize + dx;
+                        let ny = cy as isize + dy;
+                        if nx < 0 || ny < 0 || nx >= gw as isize || ny >= gh as isize {
+                            continue;
+                        }
+                        let n = ny as usize * gw + nx as usize;
+                        if mask[n] && !seen[n] {
+                            seen[n] = true;
+                            queue.push_back((nx as usize, ny as usize));
+                        }
+                    }
+                }
+                let ccx = (min_x + max_x) as f32 * stride as f32 / 2.0 / scale;
+                let ccy = (min_y + max_y) as f32 * stride as f32 / 2.0 / scale;
+                let dist = ((ccx - anchor.0).powi(2) + (ccy - anchor.1).powi(2)).sqrt();
+                if dist > 110.0 {
+                    continue;
+                }
+                if best.map(|(area, _)| count > area).unwrap_or(true) {
+                    best = Some((count, (min_x, min_y, max_x, max_y)));
+                }
+            }
+        }
+        let Some((_, (min_x, min_y, max_x, max_y))) = best else {
+            return;
+        };
+        let cx = (min_x + max_x) as f32 * stride as f32 / 2.0 / scale - anchor.0;
+        let cy = (min_y + max_y) as f32 * stride as f32 / 2.0 / scale - anchor.1;
+        let rw = (max_x - min_x) as f32 * stride as f32 / scale;
+        let rh = (max_y - min_y) as f32 * stride as f32 / scale;
+        let radius = 0.5 * rw.min(rh);
+        if radius >= 4.0 {
+            self.body_hit = Some((cx, cy, radius));
+        }
+    }
+
     pub fn loaded_id(&self) -> Option<&str> {
         self.loaded_id.as_deref()
     }
@@ -180,8 +317,12 @@ impl Renderer {
     ///
     /// `scale` must already include the display scale factor (user zoom × dpi).
     pub fn load(&mut self, spec: &AnimationSpec, scale: f32) -> Result<(), RenderError> {
-        let width = (spec.canvas.0 * scale).round().max(1.0) as u32;
-        let height = (spec.canvas.1 * scale).round().max(1.0) as u32;
+        // The per-animation tuning scale is applied as a canvas zoom (not just
+        // an in-canvas picture scale), so actions that need to be enlarged do
+        // not get clipped by the original canvas bounds.
+        let k = spec.placement.scale.max(0.05);
+        let width = (spec.canvas.0 * scale * k).round().max(1.0) as u32;
+        let height = (spec.canvas.1 * scale * k).round().max(1.0) as u32;
         if width == 0 || height == 0 || width > 8192 || height > 8192 {
             return Err(RenderError::InvalidSize(width, height));
         }
@@ -305,13 +446,14 @@ impl Renderer {
         // Scaling happens around the pet anchor so the feet stay put.  A start
         // offset can differ from the end offset; it is interpolated per frame.
         let placement = spec.placement;
-        let k = placement.scale.max(0.05);
-        anim.set_size(width as f32 * k, height as f32 * k)?;
+        anim.set_size(width as f32, height as f32)?;
         let start = placement.offset_start.unwrap_or(placement.offset);
-        let base_x = spec.pet_anchor.0 * scale * (1.0 - k);
-        let base_y = spec.pet_anchor.1 * scale * (1.0 - k);
-        anim.picture_mut()
-            .translate(base_x + start.0 * scale, base_y + start.1 * scale)?;
+        let base_x = 0.0;
+        let base_y = 0.0;
+        anim.picture_mut().translate(
+            start.0 * scale * k,
+            start.1 * scale * k,
+        )?;
         self.placement = placement;
         self.applied_offset = start;
         self.base_px = (base_x, base_y);
@@ -337,6 +479,8 @@ impl Renderer {
         canvas.update()?;
         canvas.draw(true)?;
         canvas.sync()?;
+        self.spec_anchor = (spec.pet_anchor.0 * k, spec.pet_anchor.1 * k);
+        self.update_body_hit();
 
         self.anim = Some(anim);
         self.loaded_id = Some(spec.id.clone());
@@ -376,8 +520,8 @@ impl Renderer {
             // `Picture::translate` sets the translation (it does not accumulate),
             // so always pass the absolute position in canvas pixels.
             anim.picture_mut().translate(
-                self.base_px.0 + desired.0 * self.pixel_scale,
-                self.base_px.1 + desired.1 * self.pixel_scale,
+                self.base_px.0 + desired.0 * self.pixel_scale * self.placement.scale,
+                self.base_px.1 + desired.1 * self.pixel_scale * self.placement.scale,
             )?;
             self.applied_offset = desired;
         }
@@ -389,6 +533,7 @@ impl Renderer {
         canvas.update()?;
         canvas.draw(true)?;
         canvas.sync()?;
+        self.update_body_hit();
         Ok(())
     }
 
@@ -398,6 +543,7 @@ impl Renderer {
         canvas.update()?;
         canvas.draw(true)?;
         canvas.sync()?;
+        self.update_body_hit();
         Ok(())
     }
 
@@ -1047,6 +1193,43 @@ mod tests {
         let untagged_before = first_static_fill(&before, None).expect("an untagged fill");
         let untagged_after = first_static_fill(&after, None).expect("an untagged fill");
         assert_eq!(untagged_before, untagged_after, "untagged fills must not be touched");
+    }
+
+    #[test]
+    fn body_hit_tracks_the_tinted_body() {
+        let _guard = THORVG_LOCK.lock().unwrap();
+        let root = assets_root();
+        if !root.join("catalog.json").is_file() {
+            return;
+        }
+        let catalog = Catalog::load(root).unwrap();
+        let spec = catalog.walk_spec(2, Direction::Down).unwrap();
+        let mut renderer = Renderer::new().unwrap();
+        renderer.set_tint(Some([255, 96, 150]));
+        renderer.load(&spec, 3.0).unwrap();
+        renderer.render_frame(0.0).unwrap();
+        let (dx, dy, radius) = renderer.body_hit().expect("tinted body hit");
+        assert!(radius > 5.0 && radius < 80.0, "radius {radius}");
+        assert!(dy < 0.0, "body sits above the feet");
+        assert!(dx.abs() < 30.0, "body near the anchor X");
+    }
+
+    #[test]
+    fn body_hit_works_without_a_tint() {
+        let _guard = THORVG_LOCK.lock().unwrap();
+        let root = assets_root();
+        if !root.join("catalog.json").is_file() {
+            return;
+        }
+        let catalog = Catalog::load(root).unwrap();
+        let spec = catalog.walk_spec(2, Direction::Down).unwrap();
+        let mut renderer = Renderer::new().unwrap();
+        renderer.load(&spec, 3.0).unwrap();
+        renderer.render_frame(0.0).unwrap();
+        let (dx, dy, radius) = renderer.body_hit().expect("white body hit");
+        assert!(radius > 5.0 && radius < 80.0, "radius {radius}");
+        assert!(dy < 0.0, "body sits above the feet");
+        assert!(dx.abs() < 30.0, "body near the anchor X");
     }
 
     #[test]

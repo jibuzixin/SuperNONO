@@ -615,10 +615,16 @@ impl App {
             let trail_stage = self.trail_pad_px() > 0;
             let interactive = if self.drag.is_some() {
                 true
+            } else if self.state.mode == Mode::Action && self.state.anim.auto_end {
+                false
+            } else if self.renderer.body_hit().is_some() {
+                // Only the body is clickable; the rest of the stage is
+                // click-through, so the desktop stays usable around the pet.
+                self.cursor_over_body()
             } else if trail_stage {
                 self.cursor_over_pet()
             } else {
-                self.state.mode != Mode::Action || !self.state.anim.auto_end
+                true
             };
             if self.last_interactive != Some(interactive) {
                 if let Err(err) = window.set_cursor_hittest(interactive) {
@@ -638,6 +644,27 @@ impl App {
             return false;
         };
         self.state.window_rect().contains(cursor)
+    }
+
+    /// Whether the global cursor is inside the pet's round body.
+    ///
+    /// The click/drag area is the body only; ears, fins, props and the
+    /// transparent corners stay click-through.  Uses the tinted body bounds
+    /// reported by the renderer for the current frame.
+    fn cursor_over_body(&self) -> bool {
+        let Some(cursor) = nono_platform::cursor_position() else {
+            return false;
+        };
+        let Some((dx, dy, radius)) = self.renderer.body_hit() else {
+            return self.cursor_over_pet();
+        };
+        let s = self.state.scale * self.state.dpi;
+        let cx = self.state.anchor.x + dx * s;
+        let cy = self.state.anchor.y + dy * s;
+        let rr = (radius * s).max(10.0);
+        let px = cursor.x;
+        let py = cursor.y;
+        (px - cx).powi(2) + (py - cy).powi(2) <= rr * rr
     }
 
     /// Window-local cursor position computed from the global cursor.
@@ -1434,10 +1461,14 @@ impl App {
         let idle = self.state.mode == Mode::Idle;
         let animating = self.state.is_animating() && (!idle || self.config.idle_animation);
         let fading = self.trail_fading();
+        let hover_poll = self.renderer.body_hit().is_some() && !animating;
         let next = if self.follow_until.is_some() {
             now + Duration::from_millis(50)
         } else if animating || fading {
             now + ANIMATION_POLL
+        } else if hover_poll {
+            // Keep the body click area accurate while the pet is static.
+            now + Duration::from_millis(100)
         } else if self.config_watch {
             now + CONFIG_POLL
         } else if self.state.mode == Mode::Action && !self.state.anim.auto_end {
@@ -1534,6 +1565,11 @@ impl ApplicationHandler<UserEvent> for App {
             }
             WindowEvent::MouseInput { state, button, .. } => match (button, state) {
                 (MouseButton::Left, ElementState::Pressed) => {
+                    // The window may still be interactive for a frame after the
+                    // cursor leaves the body; ignore presses outside it.
+                    if self.renderer.body_hit().is_some() && !self.cursor_over_body() {
+                        return;
+                    }
                     let now = Instant::now();
                     if self.follow_until.is_some() {
                         self.stop_follow(now);
@@ -1606,6 +1642,8 @@ impl ApplicationHandler<UserEvent> for App {
         if self.window.is_none() || !self.visible {
             return;
         }
+        // Refresh the body click-through test even when nothing animates.
+        self.apply_window_geometry();
         let now = Instant::now();
 
         if self.config_watch && now >= self.config_watch_next {

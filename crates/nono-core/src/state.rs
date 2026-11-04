@@ -90,10 +90,13 @@ impl PetState {
     }
 
     pub fn window_rect(&self) -> Rect {
+        // The tuning scale is a canvas zoom; the window must include the
+        // enlarged canvas so scaled-up actions are not clipped.
+        let k = self.anim.placement.scale.max(0.05);
         pet_window_rect(
             self.anchor,
-            self.anim.canvas,
-            self.anim.pet_anchor,
+            (self.anim.canvas.0 * k, self.anim.canvas.1 * k),
+            (self.anim.pet_anchor.0 * k, self.anim.pet_anchor.1 * k),
             self.scale,
             self.dpi,
         )

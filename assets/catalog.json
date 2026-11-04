@@ -1766,7 +1766,7 @@
           ],
           "loop": false,
           "auto_end": true,
-          "return_facing": null,
+          "return_facing": "down",
           "after_action": null,
           "audio": {
             "file": "nono-sounds/sounds/action_ball_s4.mp3",

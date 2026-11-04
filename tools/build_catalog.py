@@ -42,6 +42,7 @@ RETURN_FACING_BY_FORM_SLUG = {
     (2, "battery"): "right",
     (2, "ball"): "right",
     (3, "ball"): "down",
+    (4, "ball"): "down",
 }
 
 
