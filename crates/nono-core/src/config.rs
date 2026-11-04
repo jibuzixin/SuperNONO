@@ -133,7 +133,7 @@ impl Config {
     pub fn sanitize(&mut self) {
         self.scale = self.scale.clamp(0.5, 3.0);
         self.volume = self.volume.clamp(0.0, 1.0);
-        if !(1..=3).contains(&self.form) {
+        if !(1..=4).contains(&self.form) {
             self.form = 1;
         }
         self.roam_min_secs = self.roam_min_secs.clamp(2.0, 120.0);

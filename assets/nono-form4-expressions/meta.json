@@ -1,0 +1,105 @@
+{
+  "name": "nono-form4-expressions",
+  "form": 4,
+  "description": "超能 NONO 形态 4 的 4 个表情动画（Lottie）",
+  "source": "NONO形态与动作_20261021/资源/nono/super/exp/{1..4}_4.swf",
+  "frameRate": 25,
+  "walkCrop": [
+    149.9018,
+    143.4794
+  ],
+  "walkPetAnchor": [
+    92.0482,
+    94.0206
+  ],
+  "expressions": [
+    {
+      "id": 1,
+      "slug": "smug",
+      "name": "得意",
+      "file": "nono4_exp_smug.json",
+      "sourceFile": "exp/1_4.swf",
+      "frames": 64,
+      "layers": 149,
+      "bytes": 295699,
+      "crop": [
+        183.4,
+        106.45
+      ],
+      "canvas": [
+        189,
+        104
+      ],
+      "petAnchor": [
+        92.0482,
+        94.0206
+      ]
+    },
+    {
+      "id": 2,
+      "slug": "angry",
+      "name": "生气",
+      "file": "nono4_exp_angry.json",
+      "sourceFile": "exp/2_4.swf",
+      "frames": 63,
+      "layers": 142,
+      "bytes": 248250,
+      "crop": [
+        166.4,
+        133.2
+      ],
+      "canvas": [
+        189,
+        109
+      ],
+      "petAnchor": [
+        92.0482,
+        100.2287
+      ]
+    },
+    {
+      "id": 3,
+      "slug": "dizzy",
+      "name": "头晕",
+      "file": "nono4_exp_dizzy.json",
+      "sourceFile": "exp/3_4.swf",
+      "frames": 66,
+      "layers": 149,
+      "bytes": 307755,
+      "crop": [
+        148.6,
+        145.35
+      ],
+      "canvas": [
+        189,
+        104
+      ],
+      "petAnchor": [
+        92.0482,
+        94.8376
+      ]
+    },
+    {
+      "id": 4,
+      "slug": "play",
+      "name": "玩乐",
+      "file": "nono4_exp_play.json",
+      "sourceFile": "exp/4_4.swf",
+      "frames": 63,
+      "layers": 150,
+      "bytes": 256580,
+      "crop": [
+        139.85,
+        152.35
+      ],
+      "canvas": [
+        189,
+        137
+      ],
+      "petAnchor": [
+        92.0482,
+        128.8376
+      ]
+    }
+  ]
+}
