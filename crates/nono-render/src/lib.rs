@@ -408,6 +408,18 @@ fn is_large_white_layer(layer: &serde_json::Value) -> bool {
     if !c.has_white || c.has_shade || c.has_saturated {
         return false;
     }
+    // Flickering white flashes on the ears/hands animate their opacity; the
+    // body/helmet does not.  Only static-opacity layers are body candidates.
+    if layer
+        .get("ks")
+        .and_then(|k| k.get("o"))
+        .and_then(|o| o.get("a"))
+        .and_then(|a| a.as_i64())
+        .unwrap_or(0)
+        != 0
+    {
+        return false;
+    }
     let Some((w, h)) = shape_bounds(layer) else { return false };
     w > 18.0 && h > 18.0
 }
