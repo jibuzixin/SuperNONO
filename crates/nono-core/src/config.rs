@@ -185,6 +185,27 @@ pub fn home_dir() -> Option<PathBuf> {
         .map(PathBuf::from)
 }
 
+/// Cache directory for generated tinted Lottie copies.
+///
+/// `NONO_CACHE` overrides it.  These files are large but regenerable, so they
+/// live in the OS cache location rather than next to the config.
+pub fn cache_dir() -> PathBuf {
+    if let Some(path) = std::env::var_os("NONO_CACHE") {
+        return PathBuf::from(path);
+    }
+    let base = if cfg!(target_os = "macos") {
+        home_dir().map(|home| home.join("Library/Caches"))
+    } else if cfg!(target_os = "windows") {
+        std::env::var_os("LOCALAPPDATA").map(PathBuf::from)
+    } else {
+        std::env::var_os("XDG_CACHE_HOME")
+            .map(PathBuf::from)
+            .or_else(|| home_dir().map(|home| home.join(".cache")))
+    };
+    base.unwrap_or_else(|| PathBuf::from("."))
+        .join("NonoPet")
+}
+
 /// Where the pet looks for `catalog.json`.
 ///
 /// Order: `NONO_ASSETS`, `<exe dir>/assets`, current dir `assets`, then the

@@ -11,5 +11,6 @@ nono-core.workspace = true
 thiserror.workspace = true
 tracing.workspace = true
 image.workspace = true
+serde.workspace = true
 serde_json.workspace = true
 thorvg = { version = "0.6", default-features = false, features = ["vendored", "lottie", "std"] }

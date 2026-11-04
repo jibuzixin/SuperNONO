@@ -8,7 +8,9 @@
 //! targets, lays out bytes as `R, G, B, A` — exactly what CoreGraphics wants for
 //! a `kCGImageAlphaPremultipliedLast` image.
 
-use std::path::Path;
+use std::collections::hash_map::DefaultHasher;
+use std::hash::{Hash, Hasher};
+use std::path::{Path, PathBuf};
 
 use nono_core::AnimationSpec;
 use thorvg::{ColorSpace, EngineOption, LottieAnimation, Paint, Picture, SwCanvas, Thorvg};
@@ -20,6 +22,7 @@ use thorvg::{ColorSpace, EngineOption, LottieAnimation, Paint, Picture, SwCanvas
 // Sharing the animation's own picture is what the C API examples do.
 extern "C" {
     fn tvg_paint_ref(paint: *mut std::ffi::c_void) -> u16;
+    fn tvg_paint_unref(paint: *mut std::ffi::c_void, free: bool) -> u16;
 }
 
 #[derive(Debug, thiserror::Error)]
@@ -58,7 +61,8 @@ fn release_allocator_memory() {
 /// one, which keeps steady-state memory proportional to the currently playing
 /// clip rather than to the whole 34 MB asset pack.
 pub struct Renderer {
-    engine: &'static Thorvg,
+    // Field order matters: canvas/anim borrow the engine and must be dropped
+    // before the engine guard terminates ThorVG and frees its global caches.
     canvas: Option<SwCanvas<'static>>,
     anim: Option<LottieAnimation<'static>>,
     buffer: Vec<u32>,
@@ -71,6 +75,9 @@ pub struct Renderer {
     pixel_scale: f32,
     frame_count: u32,
     tint: Option<[u8; 3]>,
+    /// Where generated tinted Lottie copies are cached.
+    tint_cache_dir: Option<PathBuf>,
+    engine: Box<Thorvg>,
 }
 
 impl std::fmt::Debug for Renderer {
@@ -85,13 +92,8 @@ impl std::fmt::Debug for Renderer {
 
 impl Renderer {
     pub fn new() -> Result<Self, RenderError> {
-        // The engine is intentionally leaked: canvases and animations borrow it
-        // for 'static, and a desktop pet runs for the lifetime of the login
-        // session.  This is the simplest way to keep the borrow checker happy
-        // without a self-referential struct.
-        let engine: &'static Thorvg = Box::leak(Box::new(Thorvg::init()?));
+        let engine = Box::new(Thorvg::init()?);
         Ok(Self {
-            engine,
             canvas: None,
             anim: None,
             buffer: Vec::new(),
@@ -104,7 +106,23 @@ impl Renderer {
             pixel_scale: 1.0,
             frame_count: 1,
             tint: None,
+            tint_cache_dir: None,
+            engine,
         })
+    }
+
+    /// The engine reference used to create canvases/animations.
+    ///
+    /// SAFETY: the `Box<Thorvg>` lives in `self`, so its heap address is stable
+    /// while the renderer exists.  `canvas`/`anim` are declared before `engine`
+    /// and are therefore dropped first; no `'static` handle created here ever
+    /// escapes the renderer.
+    fn engine(&self) -> &'static Thorvg {
+        // SAFETY: the Box lives inside `self`, so the engine's heap address is
+        // stable across moves of the Renderer.  The borrowed canvas/animation
+        // fields are declared before `engine` and dropped first; the 'static
+        // handle never escapes this type.
+        unsafe { &*(&*self.engine as *const Thorvg) }
     }
 
     /// Recolours the character's white body parts.  The assets are untouched;
@@ -114,12 +132,48 @@ impl Renderer {
         self.tint = tint.filter(|t| *t != [255, 255, 255]);
     }
 
+    /// Enables the on-disk cache for tinted Lottie copies.
+    pub fn set_tint_cache_dir(&mut self, dir: Option<PathBuf>) {
+        self.tint_cache_dir = dir;
+    }
+
+    /// Removes every generated tinted copy.  Called when the palette changes so
+    /// old colours do not accumulate on disk.
+    pub fn clear_tint_cache(&mut self) {
+        if let Some(dir) = &self.tint_cache_dir {
+            let _ = std::fs::remove_dir_all(dir.join("tinted"));
+        }
+    }
+
     pub fn loaded_id(&self) -> Option<&str> {
         self.loaded_id.as_deref()
     }
 
     pub fn size(&self) -> (u32, u32) {
         (self.width, self.height)
+    }
+
+    /// Cache path for a tinted copy of `spec`.
+    ///
+    /// The key includes the source path, size and mtime, the tint colour and a
+    /// cache-format version, so editing the assets or changing the palette
+    /// invalidates old files automatically.
+    fn tinted_cache_path(&self, spec: &AnimationSpec, tint: [u8; 3]) -> Option<PathBuf> {
+        let dir = self.tint_cache_dir.as_ref()?;
+        let metadata = std::fs::metadata(&spec.file).ok()?;
+        let mtime = metadata
+            .modified()
+            .ok()
+            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+            .map(|duration| duration.as_nanos())
+            .unwrap_or(0);
+        let mut hasher = DefaultHasher::new();
+        spec.file.hash(&mut hasher);
+        metadata.len().hash(&mut hasher);
+        mtime.hash(&mut hasher);
+        tint.hash(&mut hasher);
+        "nono-tint-v1".hash(&mut hasher);
+        Some(dir.join("tinted").join(format!("{:016x}.json", hasher.finish())))
     }
 
     /// Loads `spec` and rasterises it at `canvas * scale` pixels.
@@ -133,7 +187,7 @@ impl Renderer {
         }
 
         if self.canvas.is_none() {
-            self.canvas = Some(self.engine.sw_canvas(EngineOption::Default)?);
+            self.canvas = Some(self.engine().sw_canvas(EngineOption::Default)?);
         }
         // A canvas cannot be retargeted while a draw is in flight.
         if let Some(canvas) = self.canvas.as_mut() {
@@ -177,13 +231,69 @@ impl Renderer {
             release_allocator_memory();
         }
 
-        let mut anim = self.engine.lottie_animation()?;
+        let mut anim = self.engine().lottie_animation()?;
         if let Some(tint) = self.tint {
-            // Recolour the body/ear-root layers in a copy of the Lottie JSON;
-            // the file on disk is untouched.
-            let bytes = std::fs::read(&spec.file)?;
-            let tinted = tint_lottie_json(&bytes, tint)?;
-            anim.load_data(&tinted)?;
+            // Recolour the tagged body layers in a copy of the Lottie JSON; the
+            // file on disk is untouched.  The result is cached on disk because
+            // generating it for the multi-MB cube actions takes seconds.
+            let cache_path = self.tinted_cache_path(spec, tint);
+            let mut loaded = false;
+            if let Some(path) = cache_path.as_deref() {
+                if path.is_file() {
+                    match path.to_str().map(|path| anim.load_file(path)) {
+                        Some(Ok(())) => {
+                            loaded = true;
+                            tracing::debug!(cache = %path.display(), "tinted animation cache hit");
+                        }
+                        Some(Err(err)) => {
+                            tracing::warn!(%err, cache = %path.display(), "bad tint cache, regenerating");
+                            let _ = std::fs::remove_file(path);
+                            anim = self.engine().lottie_animation()?;
+                        }
+                        None => {}
+                    }
+                }
+            }
+            if !loaded {
+                let bytes = std::fs::read(&spec.file)?;
+                let tinted = tint_lottie_json(&bytes, tint)?;
+                let mut loaded_from_file = false;
+                if let Some(path) = cache_path.as_deref() {
+                    if let Some(parent) = path.parent() {
+                        if let Err(err) = std::fs::create_dir_all(parent) {
+                            tracing::warn!(%err, dir = %parent.display(), "cannot create tint cache dir");
+                        }
+                    }
+                    let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
+                    match std::fs::write(&tmp, &tinted) {
+                        Ok(()) => {
+                            if let Err(err) = std::fs::rename(&tmp, path) {
+                                tracing::warn!(%err, cache = %path.display(), "cannot store tint cache");
+                                let _ = std::fs::remove_file(&tmp);
+                            }
+                        }
+                        Err(err) => {
+                            tracing::warn!(%err, cache = %tmp.display(), "cannot write tint cache");
+                        }
+                    }
+                    if path.is_file() {
+                        match path.to_str().map(|path| anim.load_file(path)) {
+                            Some(Ok(())) => loaded_from_file = true,
+                            Some(Err(err)) => {
+                                tracing::warn!(%err, cache = %path.display(), "tint cache failed to load");
+                                let _ = std::fs::remove_file(path);
+                                anim = self.engine().lottie_animation()?;
+                            }
+                            None => {}
+                        }
+                    }
+                }
+                if !loaded_from_file {
+                    anim.load_data(&tinted)?;
+                }
+                // The JSON tree used for tinting is large; return its pages.
+                release_allocator_memory();
+            }
         } else {
             anim.load_file(
                 spec.file
@@ -219,12 +329,18 @@ impl Renderer {
         let picture = unsafe { <Picture as Paint>::from_raw_paint(raw) };
         let canvas = self.canvas.as_mut().expect("canvas created above");
         canvas.add(picture)?;
+        // `canvas.add` takes its own reference (Scene::insert calls ref()); the
+        // extra reference we created above for the borrowed Picture wrapper is
+        // not consumed by it.  Release it explicitly, otherwise every loaded
+        // animation leaks its whole scene (~17 MB for the cube).
+        unsafe { tvg_paint_unref(raw as *mut std::ffi::c_void, false) };
         canvas.update()?;
         canvas.draw(true)?;
         canvas.sync()?;
 
         self.anim = Some(anim);
         self.loaded_id = Some(spec.id.clone());
+        release_allocator_memory();
         Ok(())
     }
 
@@ -522,60 +638,238 @@ fn blend_layer(
 /// - `shade`: the body's grey shading; tinted by its original brightness so the
 ///   shading levels stay distinct (and darker than the body).
 /// - untagged fills (accent/eye/prop/effect/other) are never touched.
+///
+/// The document is parsed into an **order-preserving** tree.  ThorVG's Lottie
+/// parser becomes extremely slow (seconds instead of milliseconds on the large
+/// cube actions) when object keys are alphabetically sorted, which is what
+/// `serde_json::Value`'s default `BTreeMap` would do.  Keeping the original key
+/// order is therefore required, not just cosmetic.
 fn tint_lottie_json(bytes: &[u8], tint: [u8; 3]) -> Result<Vec<u8>, serde_json::Error> {
-    let mut root: serde_json::Value = serde_json::from_slice(bytes)?;
+    let mut root: JsonTree = serde_json::from_slice(bytes)?;
     walk_dye(&mut root, tint);
     serde_json::to_vec(&root)
 }
 
-fn walk_dye(node: &mut serde_json::Value, tint: [u8; 3]) {
+/// Minimal order-preserving JSON tree (objects are `Vec<(key, value)>`).
+#[derive(Debug)]
+enum JsonTree {
+    Null,
+    Bool(bool),
+    Number(serde_json::Number),
+    String(String),
+    Array(Vec<JsonTree>),
+    Object(Vec<(String, JsonTree)>),
+}
+
+impl JsonTree {
+    fn get(&self, key: &str) -> Option<&Self> {
+        match self {
+            Self::Object(entries) => entries.iter().find(|(k, _)| k == key).map(|(_, v)| v),
+            _ => None,
+        }
+    }
+
+    fn get_mut(&mut self, key: &str) -> Option<&mut Self> {
+        match self {
+            Self::Object(entries) => entries.iter_mut().find(|(k, _)| k == key).map(|(_, v)| v),
+            _ => None,
+        }
+    }
+
+    fn as_str(&self) -> Option<&str> {
+        match self {
+            Self::String(value) => Some(value),
+            _ => None,
+        }
+    }
+
+    fn as_i64(&self) -> Option<i64> {
+        match self {
+            Self::Number(number) => number.as_i64(),
+            _ => None,
+        }
+    }
+
+    fn as_f64(&self) -> Option<f64> {
+        match self {
+            Self::Number(number) => number.as_f64(),
+            _ => None,
+        }
+    }
+
+    fn is_number(&self) -> bool {
+        matches!(self, Self::Number(_))
+    }
+
+    fn number(value: f32) -> Self {
+        // Colors are finite; fall back to zero rather than panicking.
+        Self::Number(serde_json::Number::from_f64(value as f64).unwrap_or_else(|| 0.into()))
+    }
+}
+
+impl<'de> serde::Deserialize<'de> for JsonTree {
+    fn deserialize<D: serde::Deserializer<'de>>(deserializer: D) -> Result<Self, D::Error> {
+        struct TreeVisitor;
+        impl<'de> serde::de::Visitor<'de> for TreeVisitor {
+            type Value = JsonTree;
+
+            fn expecting(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+                formatter.write_str("a JSON value")
+            }
+
+            fn visit_bool<E: serde::de::Error>(self, value: bool) -> Result<JsonTree, E> {
+                Ok(JsonTree::Bool(value))
+            }
+
+            fn visit_i64<E: serde::de::Error>(self, value: i64) -> Result<JsonTree, E> {
+                Ok(JsonTree::Number(value.into()))
+            }
+
+            fn visit_u64<E: serde::de::Error>(self, value: u64) -> Result<JsonTree, E> {
+                Ok(JsonTree::Number(value.into()))
+            }
+
+            fn visit_f64<E: serde::de::Error>(self, value: f64) -> Result<JsonTree, E> {
+                serde_json::Number::from_f64(value)
+                    .map(JsonTree::Number)
+                    .ok_or_else(|| E::custom("non-finite JSON number"))
+            }
+
+            fn visit_str<E: serde::de::Error>(self, value: &str) -> Result<JsonTree, E> {
+                Ok(JsonTree::String(value.to_owned()))
+            }
+
+            fn visit_string<E: serde::de::Error>(self, value: String) -> Result<JsonTree, E> {
+                Ok(JsonTree::String(value))
+            }
+
+            fn visit_unit<E: serde::de::Error>(self) -> Result<JsonTree, E> {
+                Ok(JsonTree::Null)
+            }
+
+            fn visit_none<E: serde::de::Error>(self) -> Result<JsonTree, E> {
+                Ok(JsonTree::Null)
+            }
+
+            fn visit_some<D: serde::Deserializer<'de>>(
+                self,
+                deserializer: D,
+            ) -> Result<JsonTree, D::Error> {
+                <JsonTree as serde::Deserialize>::deserialize(deserializer)
+            }
+
+            fn visit_seq<A: serde::de::SeqAccess<'de>>(
+                self,
+                mut seq: A,
+            ) -> Result<JsonTree, A::Error> {
+                let mut values = Vec::with_capacity(seq.size_hint().unwrap_or(0));
+                while let Some(value) = seq.next_element()? {
+                    values.push(value);
+                }
+                Ok(JsonTree::Array(values))
+            }
+
+            fn visit_map<A: serde::de::MapAccess<'de>>(
+                self,
+                mut map: A,
+            ) -> Result<JsonTree, A::Error> {
+                let mut entries = Vec::with_capacity(map.size_hint().unwrap_or(0));
+                while let Some((key, value)) = map.next_entry::<String, JsonTree>()? {
+                    entries.push((key, value));
+                }
+                Ok(JsonTree::Object(entries))
+            }
+        }
+        deserializer.deserialize_any(TreeVisitor)
+    }
+}
+
+impl serde::Serialize for JsonTree {
+    fn serialize<S: serde::Serializer>(&self, serializer: S) -> Result<S::Ok, S::Error> {
+        use serde::ser::{SerializeMap, SerializeSeq};
+        match self {
+            Self::Null => serializer.serialize_unit(),
+            Self::Bool(value) => serializer.serialize_bool(*value),
+            Self::Number(value) => value.serialize(serializer),
+            Self::String(value) => serializer.serialize_str(value),
+            Self::Array(values) => {
+                let mut seq = serializer.serialize_seq(Some(values.len()))?;
+                for value in values {
+                    seq.serialize_element(value)?;
+                }
+                seq.end()
+            }
+            Self::Object(entries) => {
+                let mut map = serializer.serialize_map(Some(entries.len()))?;
+                for (key, value) in entries {
+                    map.serialize_entry(key, value)?;
+                }
+                map.end()
+            }
+        }
+    }
+}
+
+fn walk_dye(node: &mut JsonTree, tint: [u8; 3]) {
     match node {
-        serde_json::Value::Object(map) => {
-            let is_fill = matches!(map.get("ty").and_then(|v| v.as_str()), Some("fl") | Some("st"));
-            let dye = map
-                .get("nono")
-                .and_then(|v| v.as_object())
-                .and_then(|n| n.get("dye"))
-                .and_then(|v| v.as_str())
+        JsonTree::Object(entries) => {
+            let is_fill = entries
+                .iter()
+                .find(|(key, _)| key == "ty")
+                .and_then(|(_, value)| value.as_str())
+                .is_some_and(|value| matches!(value, "fl" | "st"));
+            let dye = entries
+                .iter()
+                .find(|(key, _)| key == "nono")
+                .and_then(|(_, value)| value.get("dye"))
+                .and_then(JsonTree::as_str)
                 .map(str::to_owned);
             if is_fill {
                 if let Some(dye) = dye.as_deref() {
-                    if let Some(c) = map.get_mut("c").and_then(|v| v.as_object_mut()) {
-                        let animated = c.get("a").and_then(|v| v.as_i64()).unwrap_or(0) == 1;
+                    if let Some(c) = entries
+                        .iter_mut()
+                        .find(|(key, _)| key == "c")
+                        .map(|(_, value)| value)
+                    {
+                        let animated = c.get("a").and_then(JsonTree::as_i64).unwrap_or(0) == 1;
                         if let Some(k) = c.get_mut("k") {
                             recolor_color_field(k, tint, dye, animated);
                         }
                     }
                 }
             }
-            for v in map.values_mut() {
-                walk_dye(v, tint);
+            for (_, value) in entries.iter_mut() {
+                walk_dye(value, tint);
             }
         }
-        serde_json::Value::Array(arr) => {
-            for v in arr.iter_mut() {
-                walk_dye(v, tint);
+        JsonTree::Array(values) => {
+            for value in values {
+                walk_dye(value, tint);
             }
         }
         _ => {}
     }
 }
 
-fn recolor_color_field(k: &mut serde_json::Value, tint: [u8; 3], dye: &str, animated: bool) {
+fn recolor_color_field(k: &mut JsonTree, tint: [u8; 3], dye: &str, animated: bool) {
     match k {
-        serde_json::Value::Array(arr) => {
-            if arr.len() >= 3 && arr.iter().take(3).all(|v| v.is_number()) {
-                recolor_rgb(arr, tint, dye, animated);
+        JsonTree::Array(values) => {
+            if values.len() >= 3 && values.iter().take(3).all(JsonTree::is_number) {
+                recolor_rgb(values, tint, dye, animated);
             } else {
-                for item in arr.iter_mut() {
-                    recolor_color_field(item, tint, dye, animated);
+                for value in values {
+                    recolor_color_field(value, tint, dye, animated);
                 }
             }
         }
-        serde_json::Value::Object(map) => {
+        JsonTree::Object(entries) => {
             for key in ["s", "e"] {
-                if let Some(v) = map.get_mut(key) {
-                    recolor_color_field(v, tint, dye, animated);
+                if let Some(value) = entries
+                    .iter_mut()
+                    .find(|(name, _)| name == key)
+                    .map(|(_, value)| value)
+                {
+                    recolor_color_field(value, tint, dye, animated);
                 }
             }
         }
@@ -583,7 +877,7 @@ fn recolor_color_field(k: &mut serde_json::Value, tint: [u8; 3], dye: &str, anim
     }
 }
 
-fn recolor_rgb(components: &mut [serde_json::Value], tint: [u8; 3], dye: &str, animated: bool) {
+fn recolor_rgb(components: &mut [JsonTree], tint: [u8; 3], dye: &str, animated: bool) {
     let r = components[0].as_f64().unwrap_or(1.0) as f32;
     let g = components[1].as_f64().unwrap_or(1.0) as f32;
     let b = components[2].as_f64().unwrap_or(1.0) as f32;
@@ -591,9 +885,9 @@ fn recolor_rgb(components: &mut [serde_json::Value], tint: [u8; 3], dye: &str, a
     // A static solid fill is exactly the chosen colour; everything else keeps
     // its original brightness so the shading and keyframed fades survive.
     let factor = if dye == "solid" && !animated { 1.0 } else { brightness };
-    components[0] = serde_json::json!(tint[0] as f32 / 255.0 * factor);
-    components[1] = serde_json::json!(tint[1] as f32 / 255.0 * factor);
-    components[2] = serde_json::json!(tint[2] as f32 / 255.0 * factor);
+    components[0] = JsonTree::number(tint[0] as f32 / 255.0 * factor);
+    components[1] = JsonTree::number(tint[1] as f32 / 255.0 * factor);
+    components[2] = JsonTree::number(tint[2] as f32 / 255.0 * factor);
 }
 
 #[cfg(test)]
@@ -684,6 +978,20 @@ mod tests {
             .filter(|p| p[3] > 200 && p[0] < 120 && p[1] > 150 && p[2] > 150)
             .count();
         assert!(cyan > 100, "cyan parts must survive tinting, got {cyan}");
+    }
+
+    #[test]
+    fn tint_preserves_object_key_order() {
+        // Alphabetical key order makes ThorVG's Lottie parser pathologically
+        // slow; keeping the source order is a performance requirement.
+        let input = br#"{"z":1,"a":2,"layers":[{"ty":"fl","nono":{"dye":"solid"},"c":{"a":0,"k":[1,1,1,1]}}]}"#;
+        let out = tint_lottie_json(input, [255, 0, 0]).unwrap();
+        let text = std::str::from_utf8(&out).unwrap();
+        let z = text.find("\"z\"").unwrap();
+        let a = text.find("\"a\"").unwrap();
+        let layers = text.find("\"layers\"").unwrap();
+        assert!(z < a && a < layers, "key order changed: {text}");
+        assert!(text.contains("\"k\":[1.0,0.0,0.0"), "{text}");
     }
 
     #[test]

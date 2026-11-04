@@ -85,6 +85,15 @@
   加载时直接改 Lottie 的矢量填充色（文件不改），因此任意缩放清晰、跟着动画和姿势走。
   静态 `solid` 填充取所选颜色本身；带颜色关键帧的填充逐关键帧按亮度换色，原来的明暗/淡入淡出动画
   得以保留。形态 4/5 的资产尚未打标，等于不染色。未选颜色（默认白）时完全跳过。
+- **染色性能与缓存**：染色需要把整份 Lottie JSON 解析成树再写回。ThorVG 的 Lottie 解析器
+  在对象 key 被排序后会病态变慢（13 MB 的形态 2 魔方从 ~0.1 s 变成 ~8 s），所以使用
+  自定义的 `JsonTree`（`Vec<(key, value)>`）保持原始 key 顺序。生成结果缓存在
+  `~/Library/Caches/NonoPet/tinted`（key 含源文件路径/大小/mtime/颜色，换颜色会清空），
+  冷加载约 0.38 s、热缓存约 0.1 s。加载耗时会被 `PetState::compensate_pause` 从播放
+  时钟里扣除，因此慢加载后仍从第 0 帧开始，不会直接跳到末帧。
+- **画布引用释放**：`tvg_canvas_add` 内部会 `ref()` 目标 paint；我们为借用 picture 而临时
+  加的那一次引用必须在 add 后用 `tvg_paint_unref` 释放，否则每切换一次动画就泄漏整棵
+  Lottie 场景（形态 2 魔方约 17 MB/次）。这也是之前“点得越多内存越大”的根因。
 - **首帧加载顺序**：切换动画时先加载/解析 Lottie，再改窗口尺寸和呈现层。否则冷启动
   第一次跑大动作时，窗口会先变大、内容还没准备好，出现短暂空白。
 - **行走残影**：时间驱动，而不是按距离或固定档位。
@@ -177,6 +186,7 @@ assets/                     # 只读素材 + catalog.json
 ~/Library/Application Support/NonoPet/config.toml
                             # form / scale / sound / volume / wander
                             # / move_speed / follow_speed / idle_speed / trail_* / anchor
+~/Library/Caches/NonoPet/tinted/   # generated tinted Lottie cache
 ```
 
 配置在启动时读取，菜单操作与退出时写回；锚点持久化，重启后回到原位置。

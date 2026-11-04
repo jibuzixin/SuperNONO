@@ -115,6 +115,13 @@ impl PetState {
         }
     }
 
+    /// Pauses the playback clock by `paused` (e.g. the time a Lottie file took
+    /// to load).  Without this a slow load would advance the animation clock and
+    /// the clip could finish before its first frame is ever shown.
+    pub fn compensate_pause(&mut self, paused: Duration) {
+        self.anim_started += paused;
+    }
+
     /// Whether the current animation still produces new frames.
     ///
     /// Idle loops the walk cycle in place (the original client does the same),
@@ -438,6 +445,19 @@ mod tests {
         state.tick(&catalog, end);
         assert!(!state.after_finish(&catalog, end));
         assert_eq!(state.facing, Direction::Left);
+    }
+
+    #[test]
+    fn load_pause_does_not_advance_the_animation_clock() {
+        let Some((catalog, mut state)) = catalog_and_state() else { return };
+        let start = Instant::now();
+        assert!(state.play_action(&catalog, "cube", start));
+        // Simulate a 2 s Lottie parse; the first visible frame must still be 0.
+        state.compensate_pause(Duration::from_secs(2));
+        assert_eq!(state.frame(start), 0.0);
+        assert_eq!(state.frame(start + Duration::from_secs(1)), 0.0);
+        let frame = state.frame(start + Duration::from_millis(2400));
+        assert!((frame - 10.0).abs() < 0.01, "expected 0.4s * 25fps = 10, got {frame}");
     }
 
     #[test]

@@ -128,7 +128,8 @@ impl App {
         let now = Instant::now();
         let bus = Bus::new();
         let bus_rx = bus.subscribe();
-        let renderer = Renderer::new().context("initialising the ThorVG renderer")?;
+        let mut renderer = Renderer::new().context("initialising the ThorVG renderer")?;
+        renderer.set_tint_cache_dir(Some(config::cache_dir()));
         let state = PetState::new(&catalog, config.form, Point::new(200.0, 200.0), config.scale, 2.0, now);
         let behavior = Behavior::new(now, &config);
 
@@ -306,11 +307,18 @@ impl App {
         // must not leave an empty, already-enlarged window on screen.
         let load_started = Instant::now();
         match self.renderer.load(&self.state.anim, scale) {
-            Ok(()) => tracing::debug!(
-                anim = %anim_id,
-                load_ms = load_started.elapsed().as_secs_f64() * 1000.0,
-                "animation loaded"
-            ),
+            Ok(()) => {
+                let load_time = load_started.elapsed();
+                // Pause the playback clock for the parse/draw time.  A tinted
+                // cube action can take a second to load; without this the clip
+                // would already be at (or past) its last frame before it appears.
+                self.state.compensate_pause(load_time);
+                tracing::debug!(
+                    anim = %anim_id,
+                    load_ms = load_time.as_secs_f64() * 1000.0,
+                    "animation loaded"
+                );
+            }
             Err(err) => {
                 tracing::warn!(%err, anim = %anim_id, "rendering the animation failed");
                 return;
@@ -722,8 +730,13 @@ impl App {
         self.trail_stage_pad = 0;
         self.last_window_size = None;
         let scale = self.state.scale * self.state.dpi;
+        let load_started = Instant::now();
         if let Err(err) = self.renderer.load(&self.state.anim, scale) {
             tracing::warn!(%err, "reloading the animation failed");
+        } else {
+            // Keep the current phase across the load instead of letting the
+            // clock advance while the Lottie scene is being parsed.
+            self.state.compensate_pause(load_started.elapsed());
         }
         self.apply_window_geometry();
         self.last_anim_id = self.state.anim.id.clone();
@@ -901,8 +914,18 @@ impl App {
                 return;
             }
         };
+        if self.config.tint == tint {
+            // The clicked check item toggled itself; restore single-selection.
+            if let Some(tray) = &self.tray {
+                tray.sync_checks(&self.config);
+            }
+            return;
+        }
         self.config.tint = tint;
         self.renderer.set_tint(tint);
+        // Old colour caches are unused now; drop them instead of accumulating
+        // 10+ MB per animation colour on disk.
+        self.renderer.clear_tint_cache();
         // The tint is baked into the Lottie layers at load time, so reload the
         // current animation (keeping its playback position).
         self.reload_preserving_frame(now);
