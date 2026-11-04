@@ -601,11 +601,17 @@ impl App {
                 window.set_outer_position(want_pos);
             }
             // A trail-sized transparent window would swallow clicks far away
-            // from the pet, so walking with the trail on is click-through (like
-            // the large action windows).  Actions holding their last frame stay
-            // interactive.
-            let interactive = self.trail_pad_px() == 0
-                && (self.state.mode != Mode::Action || !self.state.anim.auto_end);
+            // from the pet, so the stage stays click-through except when the
+            // cursor is actually over the pet's tight rect.  That keeps the
+            // pet clickable/draggable while walking with a trail.
+            let trail_stage = self.trail_pad_px() > 0;
+            let interactive = if self.drag.is_some() {
+                true
+            } else if trail_stage {
+                self.cursor_over_pet()
+            } else {
+                self.state.mode != Mode::Action || !self.state.anim.auto_end
+            };
             if self.last_interactive != Some(interactive) {
                 if let Err(err) = window.set_cursor_hittest(interactive) {
                     tracing::debug!(%err, "set_cursor_hittest failed");
@@ -613,6 +619,36 @@ impl App {
                 self.last_interactive = Some(interactive);
             }
         }
+    }
+
+    /// Whether the global cursor is over the pet's tight animation rect.
+    ///
+    /// Only used while the transparent trail stage is active; outside it the
+    /// window's normal click-through rules apply.
+    fn cursor_over_pet(&self) -> bool {
+        let Some(cursor) = nono_platform::cursor_position() else {
+            return false;
+        };
+        self.state.window_rect().contains(cursor)
+    }
+
+    /// Window-local cursor position computed from the global cursor.
+    ///
+    /// The trail window is click-through until the cursor is over the pet, so
+    /// `self.cursor` (fed by CursorMoved) can be stale when a press finally
+    /// arrives.  Starting a drag from the stale value would jump the window on
+    /// the first mouse move.
+    fn press_cursor(&self) -> PhysicalPosition<f64> {
+        let Some(cursor) = nono_platform::cursor_position() else {
+            return self.cursor;
+        };
+        let rect = self.visible_rect();
+        let origin_x = rect.x.round();
+        let origin_y = rect.y.round();
+        PhysicalPosition::new(
+            cursor.x as f64 - origin_x as f64,
+            cursor.y as f64 - origin_y as f64,
+        )
     }
 
     fn position_window(&self) {
@@ -1479,7 +1515,17 @@ impl ApplicationHandler<UserEvent> for App {
                     if self.follow_until.is_some() {
                         self.stop_follow(now);
                     }
-                    self.drag = Some(DragState { press_cursor: self.cursor, distance: 0.0 });
+                    // A pending wander decision must not start a walk in the
+                    // middle of a drag; it would use a target near the drag path
+                    // and make the pet walk back there after release.
+                    self.behavior.delay(now);
+                    // Use the live global cursor rather than the possibly stale
+                    // last CursorMoved coordinate (the trail window may have
+                    // been click-through until just now).
+                    self.drag = Some(DragState {
+                        press_cursor: self.press_cursor(),
+                        distance: 0.0,
+                    });
                     if self.state.mode == Mode::Walk {
                         self.state.stop_walk(&self.catalog, now);
                         self.sync_animation(now, false, "state-change");
@@ -1494,7 +1540,17 @@ impl ApplicationHandler<UserEvent> for App {
                         Some(drag) if drag.distance < DRAG_THRESHOLD => self.on_click(now),
                         Some(_) => {
                             self.state.clamp_to(self.bounds);
-                            self.position_window();
+                            // Defensive: no walk may survive the drag (e.g. one
+                            // started by an old behavior decision).  Otherwise
+                            // the pet would wander back towards the drag path.
+                            if self.state.mode == Mode::Walk {
+                                self.state.stop_walk(&self.catalog, now);
+                                self.sync_animation(now, false, "drag-release");
+                                self.render_now(now);
+                            } else {
+                                self.position_window();
+                            }
+                            self.behavior.delay(now);
                             self.save_config();
                             self.bus.publish(Event::DragEnded);
                         }
@@ -1569,6 +1625,7 @@ impl ApplicationHandler<UserEvent> for App {
             }
         }
         if !following
+            && self.drag.is_none()
             && self.behavior.update(&mut self.state, &self.catalog, self.bounds, now)
         {
             self.sync_animation(now, false, "state-change");
