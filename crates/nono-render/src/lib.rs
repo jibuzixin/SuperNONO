@@ -16,7 +16,7 @@ use nono_core::AnimationSpec;
 use thorvg::{ColorSpace, EngineOption, LottieAnimation, Paint, Picture, SwCanvas, Thorvg};
 
 mod glow;
-pub use glow::{warm_cache, GlowSettings};
+pub use glow::GlowSettings;
 
 // `tvg_paint_ref` is not exposed by the safe wrapper on purpose (it hands out
 // raw refcount control), but it is the documented way to add an *existing*
@@ -461,21 +461,7 @@ impl Renderer {
     /// cache-format version, so editing the assets or changing the palette
     /// invalidates old files automatically.
     fn tinted_cache_path(&self, spec: &AnimationSpec, tint: [u8; 3]) -> Option<PathBuf> {
-        let dir = self.tint_cache_dir.as_ref()?;
-        let metadata = std::fs::metadata(&spec.file).ok()?;
-        let mtime = metadata
-            .modified()
-            .ok()
-            .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
-            .map(|duration| duration.as_nanos())
-            .unwrap_or(0);
-        let mut hasher = DefaultHasher::new();
-        spec.file.hash(&mut hasher);
-        metadata.len().hash(&mut hasher);
-        mtime.hash(&mut hasher);
-        tint.hash(&mut hasher);
-        "nono-tint-v1".hash(&mut hasher);
-        Some(dir.join("tinted").join(format!("{:016x}.json", hasher.finish())))
+        tinted_cache_path(self.tint_cache_dir.as_deref()?, &spec.file, tint)
     }
 
     /// Loads `spec` and rasterises it at `canvas * scale` pixels.
@@ -983,6 +969,55 @@ fn blend_layer(
 /// cube actions) when object keys are alphabetically sorted, which is what
 /// `serde_json::Value`'s default `BTreeMap` would do.  Keeping the original key
 /// order is therefore required, not just cosmetic.
+/// Cache path for the tinted copy of `file` (kept in sync with the renderer's
+/// own lookup so the background warmer can pre-generate them).
+fn tinted_cache_path(dir: &Path, file: &Path, tint: [u8; 3]) -> Option<PathBuf> {
+    let metadata = std::fs::metadata(file).ok()?;
+    let mtime = metadata
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|duration| duration.as_nanos())
+        .unwrap_or(0);
+    let mut hasher = DefaultHasher::new();
+    file.hash(&mut hasher);
+    metadata.len().hash(&mut hasher);
+    mtime.hash(&mut hasher);
+    tint.hash(&mut hasher);
+    "nono-tint-v1".hash(&mut hasher);
+    Some(dir.join("tinted").join(format!("{:016x}.json", hasher.finish())))
+}
+
+/// Writes the tinted copy for `file` if the cache does not have it yet.
+fn ensure_tinted(cache_dir: &Path, file: &Path, tint: [u8; 3]) {
+    let Some(path) = tinted_cache_path(cache_dir, file, tint) else { return };
+    if path.is_file() {
+        return;
+    }
+    let Ok(bytes) = std::fs::read(file) else { return };
+    let Ok(tinted) = tint_lottie_json(&bytes, tint) else { return };
+    if let Some(parent) = path.parent() {
+        let _ = std::fs::create_dir_all(parent);
+    }
+    let tmp = path.with_extension(format!("tmp-{}", std::process::id()));
+    if std::fs::write(&tmp, &tinted).is_ok() {
+        let _ = std::fs::rename(&tmp, &path);
+    }
+}
+
+/// Pre-generates the glow passes and (optionally) the tinted Lottie copies for
+/// `files`.  Runs on a background thread after startup: doing this lazily is
+/// what makes the first click on an action stall.
+pub fn warm_cache_with_tint(cache_root: &Path, files: &[PathBuf], tint: Option<[u8; 3]>) {
+    glow::warm_cache(cache_root, files);
+    let Some(tint) = tint.filter(|color| *color != [255, 255, 255]) else {
+        return;
+    };
+    for file in files {
+        ensure_tinted(cache_root, file, tint);
+    }
+}
+
 fn tint_lottie_json(bytes: &[u8], tint: [u8; 3]) -> Result<Vec<u8>, serde_json::Error> {
     let mut root: JsonTree = serde_json::from_slice(bytes)?;
     walk_dye(&mut root, tint);

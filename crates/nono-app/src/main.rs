@@ -984,6 +984,16 @@ impl App {
         // The tint is baked into the Lottie layers at load time, so reload the
         // current animation (keeping its playback position).
         self.reload_preserving_frame(now);
+        // Rebuild the other animations' tinted copies in the background, so the
+        // next first play does not pay for it.
+        if tint.is_some() {
+            spawn_glow_warmer(
+                config::cache_dir(),
+                self.assets_root.clone(),
+                tint,
+                self.config.form,
+            );
+        }
         self.save_config();
         if let Some(tray) = &self.tray {
             tray.sync_checks(&self.config);
@@ -2013,10 +2023,10 @@ fn main() -> Result<()> {
 
 /// Builds the glow passes for every animation in the background, so playing a
 /// clip for the first time does not pause on generation.
-fn spawn_glow_warmer(cache: PathBuf, assets: PathBuf) {
+fn spawn_glow_warmer(cache: PathBuf, assets: PathBuf, tint: Option<[u8; 3]>, form: u8) {
     std::thread::spawn(move || {
         // Let the window and the first animation settle before using the CPU.
-        std::thread::sleep(Duration::from_secs(3));
+        std::thread::sleep(Duration::from_millis(1500));
         let mut files = Vec::new();
         if let Ok(dirs) = std::fs::read_dir(&assets) {
             for dir in dirs.flatten().map(|entry| entry.path()) {
@@ -2037,9 +2047,13 @@ fn spawn_glow_warmer(cache: PathBuf, assets: PathBuf) {
                 }
             }
         }
-        tracing::debug!(files = files.len(), "warming glow cache");
-        nono_render::warm_cache(&cache, &files);
-        tracing::debug!("glow cache warm");
+        // Warm the form the user is looking at first: clicking an action of the
+        // current form is the common case.
+        let prefix = format!("nono-form{form}-");
+        files.sort_by_key(|path| !path.to_string_lossy().contains(&prefix));
+        tracing::debug!(files = files.len(), ?tint, form, "warming glow/tint cache");
+        nono_render::warm_cache_with_tint(&cache, &files, tint);
+        tracing::debug!("glow/tint cache warm");
     });
 }
 
@@ -2068,7 +2082,7 @@ fn run(assets: PathBuf, trace: bool, play: Option<String>, play_delay: f32, tint
     event_loop.set_control_flow(ControlFlow::Wait);
     let proxy = event_loop.create_proxy();
 
-    spawn_glow_warmer(config::cache_dir(), assets.clone());
+    spawn_glow_warmer(config::cache_dir(), assets.clone(), config.tint, config.form);
     let mut app = App::new(assets, catalog, config, config_path, proxy)?;
     app.initial_play = play;
     app.play_delay = play_delay;
