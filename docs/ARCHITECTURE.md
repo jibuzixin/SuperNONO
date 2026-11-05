@@ -96,6 +96,22 @@
   Lottie 场景（形态 2 魔方约 17 MB/次）。这也是之前“点得越多内存越大”的根因。
 - **首帧加载顺序**：切换动画时先加载/解析 Lottie，再改窗口尺寸和呈现层。否则冷启动
   第一次跑大动作时，窗口会先变大、内容还没准备好，出现短暂空白。
+- **辉光（运行时重建）**：Lottie 没有 glow 滤镜。素材里每个需要发光的图层都带
+  `nono.glow`（颜色 / blur / strength / `baked` / `pulse`，来自源 SWF），加载时按
+  (颜色, 半径, 强度) 分组，把对应图层抽出来生成几份很小的 Lottie（只含发光图层，
+  统一涂成辉光色，保留图层的不透明度动画 ⇒ 原素材的脉动免费复现），缓存在
+  `~/Library/Caches/NonoPet/glow`。`baked: true` 的图层已经用同心描边烘焙过，跳过；
+  纯红色条目是源里未做颜色变换的脏数据，直接忽略。
+  渲染时每份 pass 各自画到一块**降分辨率**的画布（所有 pass 共享 20 万像素预算，
+  最低 0.25 倍），用 ThorVG 的 CPU 高斯模糊后，只在该 pass 的非空包围盒内以 bilinear
+  采样合成到主帧**下面**（等效 Flash 的“辉光在物体后面”）。
+  注意坐标换算方向：`scale` 是主图→辉光图的比例，包围盒要乘 `1/scale` 映射回主图。
+  辉光会超出角色画布，所以画布四周额外留出 `2.6 × 最大模糊半径` 的透明边距
+  （`Renderer::glow_pad()` 以画布单位上报，窗口几何按同样数值放大并平移），否则光晕
+  会被窗口边缘切出一条直线。
+  生成为**流式**解析：13 MB 的 Lottie 不再整体建成 JSON 树（那会临时吃 260 MB），
+  只把保留下来的图层材料化，峰值内存 ~50 MB。
+  `NONO_GLOW_OFF=1` 可整体关闭；`sigma/alpha` 是配置项，支持热重载。
 - **点击区域**：只有 NONO 的圆形身体接受点击/拖动。渲染后按调色色相（未调色时按
   白/灰本体）取脚底锚点附近最大的连通块，换算成身体圆；鼠标离开身体时窗口用
   `set_cursor_hittest(false)` 整体穿透。窗口静止时 100ms 轮询，动画时随帧更新，
@@ -193,7 +209,9 @@ assets/                     # 只读素材 + catalog.json
 ~/Library/Application Support/NonoPet/config.toml
                             # form / scale / sound / volume / wander
                             # / move_speed / follow_speed / idle_speed / trail_* / anchor
+                            # / glow / glow_sigma / glow_alpha
 ~/Library/Caches/NonoPet/tinted/   # generated tinted Lottie cache
+~/Library/Caches/NonoPet/glow/     # generated glow passes (one per colour/blur group)
 ```
 
 配置在启动时读取，菜单操作与退出时写回；锚点持久化，重启后回到原位置。

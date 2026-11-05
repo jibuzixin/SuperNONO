@@ -14,7 +14,7 @@ use nono_core::{
     Rect,
 };
 use nono_platform::{build_tray, create_pet_window, create_presenter, AudioPlayer, Presenter, TrayMenu};
-use nono_render::{compose_trail, strip_ground_shadow, GhostFrame, Renderer};
+use nono_render::{compose_trail, strip_ground_shadow, GhostFrame, GlowSettings, Renderer};
 use rand::Rng;
 use winit::application::ApplicationHandler;
 use winit::dpi::{PhysicalPosition, PhysicalSize};
@@ -117,6 +117,21 @@ struct App {
     scheduled_play: Option<(Instant, String)>,
 }
 
+/// Maps the user-facing glow settings onto the renderer's.
+fn glow_settings(config: &Config) -> GlowSettings {
+    // `NONO_GLOW_SIGMA` / `NONO_GLOW_ALPHA` override the config for quick A/B
+    // tuning without editing `config.toml`.
+    let env_f32 = |key: &str| {
+        std::env::var(key).ok().and_then(|v| v.parse::<f32>().ok())
+    };
+    GlowSettings {
+        enabled: config.glow,
+        sigma_scale: env_f32("NONO_GLOW_SIGMA").unwrap_or(config.glow_sigma),
+        alpha_scale: env_f32("NONO_GLOW_ALPHA").unwrap_or(config.glow_alpha),
+        ..GlowSettings::default()
+    }
+}
+
 impl App {
     fn new(
         assets_root: PathBuf,
@@ -130,6 +145,7 @@ impl App {
         let bus_rx = bus.subscribe();
         let mut renderer = Renderer::new().context("initialising the ThorVG renderer")?;
         renderer.set_tint_cache_dir(Some(config::cache_dir()));
+        renderer.set_glow(glow_settings(&config));
         let state = PetState::new(&catalog, config.form, Point::new(200.0, 200.0), config.scale, 2.0, now);
         let behavior = Behavior::new(now, &config);
 
@@ -278,6 +294,7 @@ impl App {
         self.audio.set_enabled(self.config.sound);
         self.audio.set_volume(self.config.volume);
         self.renderer.set_tint(self.config.tint);
+        self.renderer.set_glow(glow_settings(&self.config));
 
         self.sync_animation(now, true, "setup");
         self.render_now(now);
@@ -313,6 +330,8 @@ impl App {
                 // cube action can take a second to load; without this the clip
                 // would already be at (or past) its last frame before it appears.
                 self.state.compensate_pause(load_time);
+                // The renderer may have grown the canvas for the glow halo.
+                self.state.set_glow_pad(self.renderer.glow_pad());
                 tracing::debug!(
                     anim = %anim_id,
                     load_ms = load_time.as_secs_f64() * 1000.0,
@@ -1350,9 +1369,23 @@ impl App {
                 self.config.follow_speed = loaded.follow_speed;
                 self.config.idle_speed = loaded.idle_speed;
                 self.config.form1_walk_anim_speed = loaded.form1_walk_anim_speed;
+                let glow_changed = (
+                    self.config.glow,
+                    self.config.glow_sigma,
+                    self.config.glow_alpha,
+                ) != (loaded.glow, loaded.glow_sigma, loaded.glow_alpha);
+                self.config.glow = loaded.glow;
+                self.config.glow_sigma = loaded.glow_sigma;
+                self.config.glow_alpha = loaded.glow_alpha;
                 self.config_mtime = Self::config_mtime(&self.config_path);
                 self.finish_trail_change(now, false);
                 self.finish_speed_change(now, false);
+                if glow_changed {
+                    // Blur radius/opacity are baked into the glow passes when an
+                    // animation loads, so pick them up by reloading the clip.
+                    self.renderer.set_glow(glow_settings(&self.config));
+                    self.reload_preserving_frame(now);
+                }
                 true
             }
             Err(err) => {
@@ -1978,6 +2011,38 @@ fn main() -> Result<()> {
     }
 }
 
+/// Builds the glow passes for every animation in the background, so playing a
+/// clip for the first time does not pause on generation.
+fn spawn_glow_warmer(cache: PathBuf, assets: PathBuf) {
+    std::thread::spawn(move || {
+        // Let the window and the first animation settle before using the CPU.
+        std::thread::sleep(Duration::from_secs(3));
+        let mut files = Vec::new();
+        if let Ok(dirs) = std::fs::read_dir(&assets) {
+            for dir in dirs.flatten().map(|entry| entry.path()) {
+                if !dir.is_dir() {
+                    continue;
+                }
+                if let Ok(items) = std::fs::read_dir(&dir) {
+                    for item in items.flatten() {
+                        let path = item.path();
+                        let name = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                        if path.extension().and_then(|e| e.to_str()) == Some("json")
+                            && name != "manifest.json"
+                            && name != "meta.json"
+                        {
+                            files.push(path);
+                        }
+                    }
+                }
+            }
+        }
+        tracing::debug!(files = files.len(), "warming glow cache");
+        nono_render::warm_cache(&cache, &files);
+        tracing::debug!("glow cache warm");
+    });
+}
+
 fn run(assets: PathBuf, trace: bool, play: Option<String>, play_delay: f32, tint: Option<[u8; 3]>) -> Result<()> {
     init_tracing(trace);
     let catalog = Catalog::load(&assets)
@@ -2003,6 +2068,7 @@ fn run(assets: PathBuf, trace: bool, play: Option<String>, play_delay: f32, tint
     event_loop.set_control_flow(ControlFlow::Wait);
     let proxy = event_loop.create_proxy();
 
+    spawn_glow_warmer(config::cache_dir(), assets.clone());
     let mut app = App::new(assets, catalog, config, config_path, proxy)?;
     app.initial_play = play;
     app.play_delay = play_delay;

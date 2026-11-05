@@ -164,6 +164,38 @@ nono --check                            # 从应用侧校验
 
 外壳换色在加载时按图层完成：只染“纯白 + 中性/米色阴影、无饱和色”的本体层，以及靠近身体中心的大块纯白层（如形态 3 头盔）；灰色阴影会换成较深的同色。只含纯白的小图层（白色闪光、汗滴、眼睛高光、气泡、道具）不动。不改 Lottie 文件。配置项 `tint = [r, g, b]`，`None`/缺省即原始白色。详见架构文档「换色」一节。
 
+## 5.2 辉光（标签在素材里，效果在运行时）
+
+需要发光的图层带 `nono.glow`：
+
+```json
+"nono": { "role": "accent", "shape": "13",
+          "glow": {"color": [50,254,254], "alpha": 255, "blur": 5.0, "blurY": 5.0,
+                   "strength": 1.0, "inner": false, "compositeSource": true,
+                   "passes": 1, "baked": false, "pulse": true, "src": true} }
+```
+
+- `baked: true` = 资产里已经用描边烘焙过，程序**不再**叠一层（否则双倍发光）；
+- `color: [255,0,0]` 是源里未经颜色变换的原始值（画面里没有红光），运行时按青色
+  `[50,254,254]` 画；
+- `nono.glow` 是**唯一入口**：有就画，没有就不画；`src` / `manual` 只是来源标记，不做开关；
+- 顶层 `nono.glowShapes` 是源参数全表（按 shape id），只用于人工核查，运行时不读；
+- 标注合并工具：`python3 tools/merge_glow_labels.py <标注目录>`（只写 `nono.glow`，
+  其它字段不动；两边图层数量/名字必须一致）。
+
+生成物缓存在 `~/Library/Caches/NonoPet/glow/<hash>/`（hash = 文件路径+大小+mtime），
+换 sigma/alpha 不需要重新生成，换素材自动失效。
+
+配置项（`config.toml`，均支持热重载）：
+
+```toml
+glow       = true   # 总开关
+glow_sigma = 0.6    # 模糊半径 = 源 blur × 该系数（0.1–2.0）
+glow_alpha = 1.3    # 辉光亮度系数（0.0–2.0）
+```
+
+`NONO_GLOW_OFF=1` 环境变量可临时整体关闭（截图对照、排查、省电）。
+
 ## 6. 新增素材
 
 1. 按现有目录约定放 Lottie 文件和 `manifest.json`（字段参考现有 manifest）。

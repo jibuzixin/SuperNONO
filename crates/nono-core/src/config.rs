@@ -57,6 +57,12 @@ pub struct Config {
     /// Recolour the white body parts, without touching the assets.  `None`
     /// keeps the original white.
     pub tint: Option<[u8; 3]>,
+    /// Runtime glow rebuilt from the assets' own filter parameters.
+    pub glow: bool,
+    /// Glow blur radius = source blur × this factor.
+    pub glow_sigma: f32,
+    /// Glow brightness multiplier (1.0 = the source strength).
+    pub glow_alpha: f32,
 }
 
 fn default_walk_anim_speed() -> f32 {
@@ -84,6 +90,9 @@ impl Default for Config {
             trail_opacity: trail::DEFAULT_OPACITY,
             anchor: None,
             tint: None,
+            glow: true,
+            glow_sigma: 0.6,
+            glow_alpha: 1.0,
         }
     }
 }
@@ -155,6 +164,8 @@ impl Config {
         self.trail_interval_ms = interval;
         self.trail_lifetime_ms = lifetime;
         self.trail_opacity = (trail::sanitize_opacity(self.trail_opacity) * 100.0).round() / 100.0;
+        self.glow_sigma = self.glow_sigma.clamp(0.1, 2.0);
+        self.glow_alpha = self.glow_alpha.clamp(0.0, 2.0);
     }
 
     /// Follow speed in pt/s, falling back to the global speed.

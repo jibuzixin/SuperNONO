@@ -23,7 +23,7 @@ nono-plugin = { path = "crates/nono-plugin" }
 nono-agent = { path = "crates/nono-agent" }
 
 serde = { version = "1", features = ["derive"] }
-serde_json = "1"
+serde_json = { version = "1", features = ["raw_value"] }
 thiserror = "2"
 anyhow = "1"
 toml = "0.8"

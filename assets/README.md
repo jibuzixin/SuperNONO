@@ -251,60 +251,36 @@ Lottie 的 JSON 允许**自定义字段**（lottie-web 会忽略未知字段，�
 | 形态 4/5 | **还没打标**，素材里没有 `nono` 段 ⇒ 整段视为「不染色」，不会出错；要染色得先补标注 |
 | 改完标注要做什么 | 重跑 `tag_assets.py --form N`（写回资产）→ `tag_verify.py --form N`（校验）→ `build_manifest.py --form N`（刷新清单里的 sha256/字节数） |
 
-### GLOW 辉光（程序自己画）
+### GLOW 辉光（运行时生成）
 
-Lottie 没有 glow 滤镜，所以带 `GLOWFILTER` 的资源**画不出原样的辉光**
-（形态 4 走路 168 / 表情 220 / 动作 766 个滤镜）。
-**辉光由程序自己画**，所以要**人工标出哪些部件要辉光** —— 打标台里的 `GLOW` 角色（快捷键 `0`）。
-
-标完之后，该图层上才会出现：
+Lottie 没有 glow 滤镜，所以辉光由**运行时**根据素材里的标注重建（真高斯模糊 + 垫在角色下面）。
+标注在**每个需要发光的图层**上：
 
 ```json
-"nono": { "role": "glow", "shape": "106",
-           "glow": {"color": [50,254,254], "alpha": 255,
-                    "blur": 7.0, "blurY": 7.0, "strength": 1.0,
-                    "inner": false, "compositeSource": true, "passes": 3,
-                    "baked": false, "pulse": true, "manual": true} }
+"nono": { "role": "accent", "shape": "13",
+          "glow": {"color": [50,254,254], "alpha": 255, "blur": 5.0, "blurY": 5.0,
+                   "strength": 1.0, "inner": false, "compositeSource": true,
+                   "passes": 1, "baked": false, "pulse": true, "src": true} }
 ```
 
 | 字段 | 含义 |
 |---|---|
 | `color` / `alpha` | 辉光颜色（源 SWF 的 `glowColor`） |
-| `blur` / `blurY` | 滤镜半径的**峰值**（源里是脉动的，见 `pulse`） |
-| `strength` | 辉光强度峰值 |
-| `inner` | 是否内发光 |
-| `compositeSource` | 源滤镜的 `compositeSource` 开关 |
-| `passes` | 源滤镜的 `passes` |
-| `baked` | **true = 这个 Lottie 资产里已经用同心描边把辉光画出来了**（转换脚本的近似机），程序**不要**再叠一层；false = 资产里没有，需要程序自己渲染 |
-| `pulse` | true = 源里的辉光是**脉动**的（strength 随帧起落，blur 与它同步缩放），而且强度与**该图层的不透明度严格成正比** —— 程序用 `strength × 当前层不透明度` 就能还原脉动 |
-| `manual` | true = 这一条是**人工标**的 GLOW（不是自动推出来的） |
+| `blur` / `blurY` | 滤镜半径的峰值 |
+| `strength` | 辉光强度峰值（`pulse` 时与图层不透明度成正比，运行时按此还原脉动） |
+| `baked` | **true = 资产里已经用同心描边画出来了**，程序不再叠一层（否则双倍发光） |
+| `src` | true = 参数来自源 SWF |
 
-> **有 `nono.glow` = 程序要在这里画辉光**；
-> **没有 `nono.glow` = 永远不画**。
-> 自动从 SWF 滤镜推出来的辉光**不再写进图层** —— 否则每个带滤镜的部件都会亮，
-> 程序就没法按人的意思挑了。
-
-#### 源里的辉光参数去哪了：`nono.glowShapes`
-
-顶层 `nono.glowShapes` 存着**源 SWF 里带 GLOWFILTER 的形状**及其参数：
-
-```json
-"nono": { "glowShapes": { "106": {"color": [50,254,254], "blur": 7.0, ...} } }
-```
-
-这是**只读参考**，不是画辉光的指令。用处有两个：
-
-1. 打标台据此提示「这一段源里带辉光」，人工照着一个个标（`GLOW` 快捷键 `0`）；
-2. 人工标了 GLOW 时，**直接继承源里的真实参数**（颜色 / 半径 / 强度），
-   而不是用默认值 —— 源里这一段没有 GLOWFILTER 时才退回默认值。
-
-运行时可以自己按 `nono.glow` 的参数实现辉光（描边叠加 / 滤镜合成），**不用回头去解析 SWF**。
+顶层 `nono.glowShapes` 保留同一份参数的全表（按 shape id），是没有逐层标注时的兜底。
 
 > **两条坑**：
-> 1. 源 SWF 里 `strength=0` 的辉光**是看不见的**（作者拿它当占位，只把 blur 递增）。
->    这类**不会**被记进 `glowShapes` —— 标了反而会让程序画出一圈不该有的光晕。
-> 2. `baked` 一定要看：开机 / 召唤的辉光**已经烘焙在资产里**了，
->    程序若再叠一层就会变成双重辉光（比原图更亮）。
+> 1. 源里 `strength=0` 的辉光看不见（作者拿它当占位），这类不会写进标注。
+> 2. 形态 3 有 88 条 `color=[255,0,0]`：源 SWF 里是**未经颜色变换的原始 glowColor**，
+>    画面上并不存在红色辉光，运行时会按青色 `[50,254,254]` 画。
+
+运行时不改资产：按 (颜色, 半径, 强度) 分组生成几份很小的 Lottie 并缓存到
+`~/Library/Caches/NonoPet/glow/`；`config.toml` 的 `glow` / `glow_sigma` / `glow_alpha`
+可实时调，`NONO_GLOW_OFF=1` 可整体关闭。
 
 ### 怎么看效果
 

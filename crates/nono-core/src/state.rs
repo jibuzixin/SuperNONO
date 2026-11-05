@@ -53,6 +53,8 @@ pub struct PetState {
     pub facing: Direction,
     pub scale: f32,
     pub dpi: f32,
+    /// Transparent margin (canvas units) the renderer added so glow fits.
+    glow_pad: f32,
     /// A one-shot animation has reached its last frame.
     pub finished: bool,
     walk_target: Option<Point>,
@@ -82,6 +84,7 @@ impl PetState {
             facing,
             scale,
             dpi,
+            glow_pad: 0.0,
             finished: false,
             walk_target: None,
             walk_speed: 0.0,
@@ -93,13 +96,27 @@ impl PetState {
         // The tuning scale is a canvas zoom; the window must include the
         // enlarged canvas so scaled-up actions are not clipped.
         let k = self.anim.placement.scale.max(0.05);
+        // Glow margin: the renderer draws the clip inside a larger transparent
+        // canvas, so the window has to grow by the same amount (and the anchor
+        // shifts with it) or the halo is cut at the edge.
+        let pad = self.glow_pad.max(0.0) * k;
         pet_window_rect(
             self.anchor,
-            (self.anim.canvas.0 * k, self.anim.canvas.1 * k),
-            (self.anim.pet_anchor.0 * k, self.anim.pet_anchor.1 * k),
+            (self.anim.canvas.0 * k + 2.0 * pad, self.anim.canvas.1 * k + 2.0 * pad),
+            (self.anim.pet_anchor.0 * k + pad, self.anim.pet_anchor.1 * k + pad),
             self.scale,
             self.dpi,
         )
+    }
+
+    /// Sets the glow margin reported by the renderer (canvas units).
+    pub fn set_glow_pad(&mut self, pad: f32) {
+        self.glow_pad = pad.max(0.0);
+    }
+
+    /// The glow margin currently applied to the window (canvas units).
+    pub fn glow_pad(&self) -> f32 {
+        self.glow_pad
     }
 
     /// Current walking speed in physical pixels per second (0 when not walking).

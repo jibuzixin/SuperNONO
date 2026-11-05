@@ -15,6 +15,9 @@ use std::path::{Path, PathBuf};
 use nono_core::AnimationSpec;
 use thorvg::{ColorSpace, EngineOption, LottieAnimation, Paint, Picture, SwCanvas, Thorvg};
 
+mod glow;
+pub use glow::{warm_cache, GlowSettings};
+
 // `tvg_paint_ref` is not exposed by the safe wrapper on purpose (it hands out
 // raw refcount control), but it is the documented way to add an *existing*
 // picture to a canvas.  We need that because `Paint::duplicate()` is a deep
@@ -79,7 +82,27 @@ pub struct Renderer {
     body_hit: Option<(f32, f32, f32)>,
     /// Where generated tinted Lottie copies are cached.
     tint_cache_dir: Option<PathBuf>,
+    /// Runtime glow settings (soft halo rebuilt from `nono.glowShapes`).
+    glow: GlowSettings,
+    /// One blurred, offscreen pass per (colour, blur, strength) group.
+    glow_passes: Vec<GlowPass>,
+    /// Transparent margin added on every side so the halo is not cut by the
+    /// window edge (canvas units; 0 when the clip has no glow).
+    glow_pad: f32,
     engine: Box<Thorvg>,
+}
+
+/// One blurred, low-resolution pass that is composited under the main frame.
+struct GlowPass {
+    anim: LottieAnimation<'static>,
+    canvas: SwCanvas<'static>,
+    buffer: Vec<u32>,
+    width: u32,
+    height: u32,
+    /// Glow buffer pixels per canvas pixel (1.0 = full resolution).
+    scale: f32,
+    sigma: f32,
+    opacity: u8,
 }
 
 impl std::fmt::Debug for Renderer {
@@ -111,6 +134,9 @@ impl Renderer {
             spec_anchor: (0.0, 0.0),
             body_hit: None,
             tint_cache_dir: None,
+            glow: GlowSettings::default(),
+            glow_passes: Vec::new(),
+            glow_pad: 0.0,
             engine,
         })
     }
@@ -139,6 +165,145 @@ impl Renderer {
     /// Enables the on-disk cache for tinted Lottie copies.
     pub fn set_tint_cache_dir(&mut self, dir: Option<PathBuf>) {
         self.tint_cache_dir = dir;
+    }
+
+    /// Enables/adjusts the runtime glow.  Takes effect on the next animation
+    /// load, so callers should reload the current clip after changing it.
+    pub fn set_glow(&mut self, settings: GlowSettings) {
+        self.glow = settings;
+    }
+
+    /// Number of glow passes currently active (0 when the clip has no glow).
+    pub fn glow_passes(&self) -> usize {
+        self.glow_passes.len()
+    }
+
+    /// Transparent margin (canvas units) that [`Renderer::load`] added around
+    /// the canvas so the glow fits.  Window geometry must grow by the same
+    /// amount, otherwise the halo is cut at the window edge.
+    pub fn glow_pad(&self) -> f32 {
+        self.glow_pad
+    }
+
+    /// Builds (or reuses) the glow passes for `file` and loads them into
+    /// offscreen canvases.
+    fn load_glow(
+        &mut self,
+        _file: &Path,
+        specs: Vec<glow::GlowPassSpec>,
+        inner_w: u32,
+        inner_h: u32,
+        pad: f32,
+        dpi: f32,
+    ) -> Result<(), RenderError> {
+        self.glow_passes.clear();
+        // `NONO_GLOW_OFF=1` disables the effect for A/B screenshots and for
+        // users whose GPU-less CPU cannot afford the extra blur.
+        if !self.glow.enabled || std::env::var_os("NONO_GLOW_OFF").is_some() {
+            return Ok(());
+        }
+        if specs.is_empty() {
+            return Ok(());
+        }
+        let scale = self.glow.glow_scale(specs.len(), inner_w, inner_h);
+        let pad = pad * scale;
+        let w = ((inner_w as f32 * scale).round() as u32).max(1) + (pad as u32) * 2;
+        let h = ((inner_h as f32 * scale).round() as u32).max(1) + (pad as u32) * 2;
+        let mut passes = Vec::with_capacity(specs.len());
+        for spec in specs {
+            let mut anim = self.engine().lottie_animation()?;
+            let path = spec
+                .path
+                .to_str()
+                .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "non-utf8 glow path"))?;
+            anim.load_file(path)?;
+            anim.set_size((w as f32 - pad * 2.0).max(1.0), (h as f32 - pad * 2.0).max(1.0))?;
+            anim.picture_mut().translate(pad, pad)?;
+            // `dpi` is canvas units → buffer pixels; `scale` is the glow
+            // buffer's own resolution relative to the main buffer.
+            let sigma = (spec.blur * self.glow.sigma_scale * dpi * scale).max(0.1);
+            // Flash: glow alpha = blurred alpha × strength, and the layer's
+            // animated opacity is already part of the blurred alpha.
+            let opacity = (spec.strength.clamp(0.0, 1.0) * self.glow.alpha_scale * 255.0)
+                .round()
+                .clamp(0.0, 255.0) as u8;
+
+            let mut canvas = self.engine().sw_canvas(EngineOption::Default)?;
+            let mut buffer = vec![0u32; (w * h) as usize];
+            // SAFETY: `buffer` is owned by the pass and outlives the canvas.
+            unsafe {
+                canvas.set_target(&mut buffer, w, w, h, ColorSpace::ABGR8888)?;
+            }
+            let mut scene = self.engine().scene()?;
+            let raw = anim.picture().raw();
+            // SAFETY: same ref-count dance as `load` — see the comment there.
+            unsafe { tvg_paint_ref(raw as *mut std::ffi::c_void) };
+            let picture = unsafe { <Picture as Paint>::from_raw_paint(raw) };
+            scene.add(picture)?;
+            // `scene.add` refs the paint (same as `canvas.add`); release the
+            // reference we took above so switching animations cannot leak.
+            unsafe { tvg_paint_unref(raw as *mut std::ffi::c_void, false) };
+            scene.set_opacity(opacity)?;
+            scene.add_gaussian_blur_effect(
+                thorvg::GaussianBlur::new()
+                    .sigma(f64::from(sigma))
+                    .direction(thorvg::BlurDirection::Both)
+                    .border(thorvg::BlurBorder::Duplicate)
+                    .quality(self.glow.quality),
+            )?;
+            canvas.add(scene)?;
+            passes.push(GlowPass {
+                anim,
+                canvas,
+                buffer,
+                width: w,
+                height: h,
+                scale,
+                sigma,
+                opacity,
+            });
+        }
+        tracing::debug!(passes = passes.len(), w, h, "glow passes ready");
+        self.glow_passes = passes;
+        Ok(())
+    }
+
+    /// Renders every glow pass for `frame` (or the pass's current frame when
+    /// `None`) and composites it under the main frame.
+    fn draw_glow(&mut self, frame: Option<f32>) {
+        if self.glow_passes.is_empty() {
+            return;
+        }
+        let Self { buffer, width, height, glow_passes, .. } = self;
+        let main = unsafe {
+            std::slice::from_raw_parts_mut(buffer.as_mut_ptr() as *mut u8, buffer.len() * 4)
+        };
+        for pass in glow_passes.iter_mut() {
+            if let Some(frame) = frame {
+                let _ = pass.anim.set_frame(frame);
+            }
+            if pass.canvas.update().is_err()
+                || pass.canvas.draw(true).is_err()
+                || pass.canvas.sync().is_err()
+            {
+                continue;
+            }
+            let glow = unsafe {
+                std::slice::from_raw_parts(pass.buffer.as_ptr() as *const u8, pass.buffer.len() * 4)
+            };
+            glow::composite_under(
+                main,
+                *width as usize,
+                *height as usize,
+                glow,
+                pass.width as usize,
+                pass.height as usize,
+                pass.scale,
+            );
+        }
+        tracing::trace!(sigma = ?glow_passes.iter().map(|p| p.sigma).collect::<Vec<_>>(),
+                        opacity = ?glow_passes.iter().map(|p| p.opacity).collect::<Vec<_>>(),
+                        "glow frame");
     }
 
     /// Removes every generated tinted copy.  Called when the palette changes so
@@ -321,8 +486,28 @@ impl Renderer {
         // an in-canvas picture scale), so actions that need to be enlarged do
         // not get clipped by the original canvas bounds.
         let k = spec.placement.scale.max(0.05);
-        let width = (spec.canvas.0 * scale * k).round().max(1.0) as u32;
-        let height = (spec.canvas.1 * scale * k).round().max(1.0) as u32;
+        let inner_w = (spec.canvas.0 * scale * k).round().max(1.0) as u32;
+        let inner_h = (spec.canvas.1 * scale * k).round().max(1.0) as u32;
+
+        // Glow needs a transparent margin: the halo is wider than the character
+        // and would otherwise be cut by the window edge (a visible straight
+        // line).  The margin is derived from the largest blur radius.
+        let specs = if self.glow.enabled && std::env::var_os("NONO_GLOW_OFF").is_none() {
+            glow::passes(&spec.file, self.tint_cache_dir.as_deref()).unwrap_or_default()
+        } else {
+            Vec::new()
+        };
+        let max_blur = specs.iter().map(|s| s.blur).fold(0.0f32, f32::max);
+        let pad_units = if max_blur > 0.0 {
+            (max_blur * self.glow.sigma_scale * 2.6).ceil().clamp(1.0, 64.0)
+        } else {
+            0.0
+        };
+        let pad = (pad_units * scale * k).round();
+        self.glow_pad = pad_units;
+
+        let width = inner_w + (pad as u32) * 2;
+        let height = inner_h + (pad as u32) * 2;
         if width == 0 || height == 0 || width > 8192 || height > 8192 {
             return Err(RenderError::InvalidSize(width, height));
         }
@@ -446,13 +631,15 @@ impl Renderer {
         // Scaling happens around the pet anchor so the feet stay put.  A start
         // offset can differ from the end offset; it is interpolated per frame.
         let placement = spec.placement;
-        anim.set_size(width as f32, height as f32)?;
+        // Size the composition to the *inner* canvas, then shift it by the glow
+        // margin; the margin itself stays transparent.
+        anim.set_size(inner_w as f32, inner_h as f32)?;
         let start = placement.offset_start.unwrap_or(placement.offset);
-        let base_x = 0.0;
-        let base_y = 0.0;
+        let base_x = pad;
+        let base_y = pad;
         anim.picture_mut().translate(
-            start.0 * scale * k,
-            start.1 * scale * k,
+            pad + start.0 * scale * k,
+            pad + start.1 * scale * k,
         )?;
         self.placement = placement;
         self.applied_offset = start;
@@ -479,9 +666,11 @@ impl Renderer {
         canvas.update()?;
         canvas.draw(true)?;
         canvas.sync()?;
-        self.spec_anchor = (spec.pet_anchor.0 * k, spec.pet_anchor.1 * k);
+        self.spec_anchor = (spec.pet_anchor.0 * k + pad, spec.pet_anchor.1 * k + pad);
+        if let Err(err) = self.load_glow(&spec.file, specs, inner_w, inner_h, pad, scale * k) {
+            tracing::warn!(%err, file = %spec.file.display(), "glow passes unavailable");
+        }
         self.update_body_hit();
-
         self.anim = Some(anim);
         self.loaded_id = Some(spec.id.clone());
         release_allocator_memory();
@@ -533,7 +722,10 @@ impl Renderer {
         canvas.update()?;
         canvas.draw(true)?;
         canvas.sync()?;
+        // The body mask must be measured on the character only: the halo would
+        // otherwise grow the clickable circle.
         self.update_body_hit();
+        self.draw_glow(Some(target));
         Ok(())
     }
 
@@ -544,6 +736,7 @@ impl Renderer {
         canvas.draw(true)?;
         canvas.sync()?;
         self.update_body_hit();
+        self.draw_glow(None);
         Ok(())
     }
 
@@ -797,7 +990,7 @@ fn tint_lottie_json(bytes: &[u8], tint: [u8; 3]) -> Result<Vec<u8>, serde_json::
 }
 
 /// Minimal order-preserving JSON tree (objects are `Vec<(key, value)>`).
-#[derive(Debug)]
+#[derive(Debug, Clone)]
 enum JsonTree {
     Null,
     Bool(bool),
@@ -1046,6 +1239,14 @@ mod tests {
     // application is single-threaded, so tests simply serialise here.
     static THORVG_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
 
+    /// Tests sample exact pixels, so they must not pay for the glow margin
+    /// (which shifts every pixel by the halo padding).
+    fn test_renderer() -> Renderer {
+        let mut renderer = Renderer::new().unwrap();
+        renderer.set_glow(GlowSettings { enabled: false, ..GlowSettings::default() });
+        renderer
+    }
+
     fn assets_root() -> PathBuf {
         Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets")
     }
@@ -1084,7 +1285,7 @@ mod tests {
         }
         let catalog = Catalog::load(&root).unwrap();
         let spec = catalog.walk_spec(1, Direction::Down).unwrap();
-        let mut renderer = Renderer::new().unwrap();
+        let mut renderer = test_renderer();
         renderer.load(&spec, 3.0).unwrap();
         renderer.render_frame(0.0).unwrap();
         let first = renderer.rgba8().to_vec();
@@ -1108,7 +1309,7 @@ mod tests {
         }
         let catalog = Catalog::load(&root).unwrap();
         let spec = catalog.walk_spec(1, Direction::Down).unwrap();
-        let mut renderer = Renderer::new().unwrap();
+        let mut renderer = test_renderer();
         renderer.set_tint(Some([255, 0, 0]));
         renderer.load(&spec, 2.5).unwrap();
         renderer.render_frame(0.0).unwrap();
@@ -1204,7 +1405,7 @@ mod tests {
         }
         let catalog = Catalog::load(root).unwrap();
         let spec = catalog.walk_spec(2, Direction::Down).unwrap();
-        let mut renderer = Renderer::new().unwrap();
+        let mut renderer = test_renderer();
         renderer.set_tint(Some([255, 96, 150]));
         renderer.load(&spec, 3.0).unwrap();
         renderer.render_frame(0.0).unwrap();
@@ -1223,7 +1424,7 @@ mod tests {
         }
         let catalog = Catalog::load(root).unwrap();
         let spec = catalog.walk_spec(2, Direction::Down).unwrap();
-        let mut renderer = Renderer::new().unwrap();
+        let mut renderer = test_renderer();
         renderer.load(&spec, 3.0).unwrap();
         renderer.render_frame(0.0).unwrap();
         let (dx, dy, radius) = renderer.body_hit().expect("white body hit");
@@ -1241,7 +1442,7 @@ mod tests {
         }
         let catalog = Catalog::load(&root).unwrap();
         let spec = catalog.expression_spec(2, "happy").unwrap();
-        let mut renderer = Renderer::new().unwrap();
+        let mut renderer = test_renderer();
         renderer.set_tint(Some([255, 0, 0]));
         renderer.load(&spec, 3.0).unwrap();
         renderer.render_frame(15.0).unwrap();
@@ -1278,7 +1479,7 @@ mod tests {
             return;
         }
         let catalog = Catalog::load(&root).unwrap();
-        let mut renderer = Renderer::new().unwrap();
+        let mut renderer = test_renderer();
         let walk = catalog.walk_spec(1, Direction::Down).unwrap();
         renderer.load(&walk, 2.0).unwrap();
         let walk_size = renderer.size();
@@ -1421,7 +1622,7 @@ mod tests {
         let catalog = Catalog::load(&root).unwrap();
         let spec = catalog.walk_spec(1, Direction::Right).unwrap();
         let scale = 2.0;
-        let mut renderer = Renderer::new().unwrap();
+        let mut renderer = test_renderer();
         renderer.load(&spec, scale).unwrap();
         renderer.render_frame(0.0).unwrap();
         let (w, h) = renderer.size();
