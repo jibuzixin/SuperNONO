@@ -356,9 +356,18 @@ impl App {
         let _ = now;
     }
 
+    /// Playback multiplier for the form-1 walk cycle (idle + all 8 directions).
+    fn walk_animation_speed(&self) -> f32 {
+        if self.state.form == 1 && self.state.anim.kind == nono_core::catalog::AnimationKind::Walk {
+            self.config.form1_walk_anim_speed
+        } else {
+            1.0
+        }
+    }
+
     fn render_now(&mut self, now: Instant) {
         let started = Instant::now();
-        let frame = self.state.frame(now);
+        let frame = self.state.frame_at(now, self.walk_animation_speed());
         if let Err(err) = self.renderer.render_frame(frame) {
             tracing::warn!(%err, frame, "render failed");
             return;
@@ -773,7 +782,7 @@ impl App {
     }
 
     fn frame_due(&self, now: Instant) -> bool {
-        let key = frame_key(self.state.frame(now));
+        let key = frame_key(self.state.frame_at(now, self.walk_animation_speed()));
         key != self.last_frame_key || self.dirty
     }
 
@@ -1340,6 +1349,7 @@ impl App {
                 self.config.move_speed = loaded.move_speed;
                 self.config.follow_speed = loaded.follow_speed;
                 self.config.idle_speed = loaded.idle_speed;
+                self.config.form1_walk_anim_speed = loaded.form1_walk_anim_speed;
                 self.config_mtime = Self::config_mtime(&self.config_path);
                 self.finish_trail_change(now, false);
                 self.finish_speed_change(now, false);
@@ -1376,7 +1386,12 @@ impl App {
         }
         self.config_mtime = Some(mtime);
         if self.reload_tuning_from_disk(now) {
-            tracing::info!("trail/speed settings reloaded from config");
+            tracing::info!(
+                form1_walk_anim_speed = self.config.form1_walk_anim_speed,
+                form = self.state.form,
+                active = self.state.form == 1 && self.state.anim.kind == nono_core::catalog::AnimationKind::Walk,
+                "trail/speed settings reloaded from config"
+            );
         }
     }
 
@@ -1977,6 +1992,7 @@ fn run(assets: PathBuf, trace: bool, play: Option<String>, play_delay: f32, tint
         config = %config_path.display(),
         form = config.form,
         scale = config.scale,
+        form1_walk_anim_speed = config.form1_walk_anim_speed,
         asset_version = catalog.asset_version().unwrap_or("?"),
         "starting 超能 NONO"
     );

@@ -137,8 +137,13 @@ impl PetState {
     /// Current frame of the active animation.  Idle plays the walk cycle in
     /// place; one-shot animations clamp to their last frame.
     pub fn frame(&self, now: Instant) -> f32 {
+        self.frame_at(now, 1.0)
+    }
+
+    /// Like [`frame`], but with a playback-speed multiplier (for the walk cycle).
+    pub fn frame_at(&self, now: Instant, speed: f32) -> f32 {
         let elapsed = now.saturating_duration_since(self.anim_started).as_secs_f32();
-        let raw = elapsed * self.anim.fps;
+        let raw = elapsed * self.anim.fps * speed.max(0.01);
         let frames = self.anim.effective_frames();
         if self.anim.loop_anim {
             raw % frames as f32
@@ -373,6 +378,16 @@ mod tests {
         let now = Instant::now();
         let state = PetState::new(&catalog, 1, Point::new(800.0, 600.0), 1.5, 2.0, now);
         Some((catalog, state))
+    }
+
+    #[test]
+    fn frame_at_scales_the_walk_playback_speed() {
+        let Some((_catalog, state)) = catalog_and_state() else { return };
+        let later = state.anim_started + Duration::from_millis(200);
+        // 25 fps × 0.2 s = frame 5; at 2× speed the cycle is at frame 10.
+        assert!((state.frame(later) - 5.0).abs() < 0.01);
+        assert!((state.frame_at(later, 2.0) - 10.0).abs() < 0.01);
+        assert!((state.frame_at(later, 0.5) - 2.5).abs() < 0.01);
     }
 
     #[test]

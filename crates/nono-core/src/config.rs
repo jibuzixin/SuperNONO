@@ -32,6 +32,10 @@ pub struct Config {
     pub roam_max_secs: f32,
     /// Global movement speed in logical points per second.
     pub move_speed: f32,
+    /// Form 1's walk animation playback speed (1.0 = asset fps, 0.25–4.0).
+    /// This scales the walking/idle cycle only, not the movement speed.
+    #[serde(default = "default_walk_anim_speed")]
+    pub form1_walk_anim_speed: f32,
     /// Follow-mouse speed override.  `None` uses [`Config::move_speed`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub follow_speed: Option<f32>,
@@ -55,6 +59,10 @@ pub struct Config {
     pub tint: Option<[u8; 3]>,
 }
 
+fn default_walk_anim_speed() -> f32 {
+    1.0
+}
+
 impl Default for Config {
     fn default() -> Self {
         Self {
@@ -67,6 +75,7 @@ impl Default for Config {
             roam_min_secs: 6.0,
             roam_max_secs: 16.0,
             move_speed: speed::DEFAULT_GLOBAL,
+            form1_walk_anim_speed: default_walk_anim_speed(),
             follow_speed: speed::DEFAULT_FOLLOW,
             idle_speed: speed::DEFAULT_IDLE,
             trail_enabled: trail::DEFAULT_ENABLED,
@@ -139,6 +148,7 @@ impl Config {
         self.roam_min_secs = self.roam_min_secs.clamp(2.0, 120.0);
         self.roam_max_secs = self.roam_max_secs.clamp(self.roam_min_secs, 600.0);
         self.move_speed = speed::sanitize(self.move_speed);
+        self.form1_walk_anim_speed = self.form1_walk_anim_speed.clamp(0.25, 4.0);
         self.follow_speed = speed::sanitize_override(self.follow_speed);
         self.idle_speed = speed::sanitize_override(self.idle_speed);
         let (interval, lifetime) = trail::sanitize(self.trail_interval_ms, self.trail_lifetime_ms);
@@ -334,6 +344,10 @@ mod tests {
     fn sanitize_clamps_out_of_range_values() {
         let mut config = Config { scale: 99.0, volume: -1.0, form: 9, ..Config::default() };
         config.sanitize();
+        assert_eq!(config.form, 1);
+        let mut walk = Config { form1_walk_anim_speed: 99.0, ..Config::default() };
+        walk.sanitize();
+        assert_eq!(walk.form1_walk_anim_speed, 4.0);
         assert_eq!(config.scale, 3.0);
         assert_eq!(config.volume, 0.0);
         assert_eq!(config.form, 1);

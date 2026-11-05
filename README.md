@@ -105,6 +105,7 @@ trail_opacity = 0.22
 move_speed = 60.0
 follow_speed = 140.0
 idle_speed = 80.0
+form1_walk_anim_speed = 1.0
 ```
 
 - `trail_interval_ms`：20–400，越小残影越密
@@ -113,6 +114,8 @@ idle_speed = 80.0
 - `move_speed`：10–400 pt/s，全局移动速度
 - `follow_speed`：跟随鼠标的速度；**删掉这一行**（或注释掉）就跟随全局
 - `idle_speed`：待机自由移动速度；删掉这一行就跟随全局
+- `form1_walk_anim_speed`：0.25–4.0，形态 1 八个方向走路/待机动画的**播放速度倍率**
+  （1.0 = 原始 25fps；只影响动画循环，不影响移动速度，配置热重载即时生效）
 
 默认值是 `move_speed = 60`、`follow_speed = 140`、`idle_speed` 不设置（跟全局）。
 旧版配置第一次加载会自动补上 140 的跟随速度，保持原来的手感；一旦配置里出现
