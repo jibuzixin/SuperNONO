@@ -61,8 +61,13 @@ struct TrailSample {
     pixels: Vec<u8>,
     width: u32,
     height: u32,
-    /// Pet feet position when this frame was drawn (physical screen px).
+    /// Pet feet position when this frame was drawn (logical global points).
     anchor: Point,
+    /// Physical pixel position of the feet inside `pixels`.  Frames from
+    /// different walk directions can have different glow margins/sizes, so the
+    /// ghost must be pinned by its own anchor instead of assuming it matches
+    /// the current frame.
+    anchor_in_frame: (f32, f32),
     /// When this afterimage was spawned; its age drives the fade.
     at: Instant,
 }
@@ -99,6 +104,10 @@ struct App {
     trail_samples: VecDeque<TrailSample>,
     /// Padding of the last walking stage, kept while the ghosts fade out.
     trail_stage_pad: u32,
+    /// Stable stage extents relative to the pet anchor (physical px).  Grown
+    /// during a walk and only reset when the trail is gone, so samples expiring
+    /// does not resize the window every interval.
+    trail_extents: Option<Rect>,
     /// Last time a frame was rendered (used to throttle the fade-out).
     last_render_at: Instant,
     /// Last applied window size (physical px), to avoid redundant resizes.
@@ -155,6 +164,27 @@ fn distance_to_rect(point: Point, rect: Rect) -> f32 {
     let x = point.x.clamp(rect.x, rect.right());
     let y = point.y.clamp(rect.y, rect.bottom());
     ((point.x - x).powi(2) + (point.y - y).powi(2)).sqrt()
+}
+
+fn union_rect(a: Rect, b: Rect) -> Rect {
+    let x0 = a.x.min(b.x);
+    let y0 = a.y.min(b.y);
+    let x1 = a.right().max(b.right());
+    let y1 = a.bottom().max(b.bottom());
+    Rect::new(x0, y0, x1 - x0, y1 - y0)
+}
+
+/// Top-left of a ghost frame in global physical pixels.
+///
+/// `anchor` is the screen-space feet position in logical points and
+/// `anchor_in_frame` is the feet pixel inside that particular frame.  Using the
+/// frame's own anchor makes ghosts from differently-padded walk directions
+/// line up correctly.
+fn ghost_frame_origin(anchor: Point, anchor_in_frame: (f32, f32), dpi: f32) -> Point {
+    Point::new(
+        anchor.x * dpi - anchor_in_frame.0,
+        anchor.y * dpi - anchor_in_frame.1,
+    )
 }
 
 /// Whether `cursor` is inside the round body hit circle.
@@ -391,6 +421,7 @@ impl App {
             trail_buf: Vec::new(),
             trail_samples: VecDeque::new(),
             trail_stage_pad: 0,
+            trail_extents: None,
             last_render_at: now,
             last_window_size: None,
             last_interactive: None,
@@ -598,6 +629,7 @@ impl App {
         // Old afterimages belong to the previous location.
         self.trail_samples.clear();
         self.trail_stage_pad = 0;
+        self.trail_extents = None;
         self.last_window_size = None;
         self.behavior.delay(now);
         self.show_pet();
@@ -864,6 +896,7 @@ impl App {
         let lifetime = Duration::from_millis(self.config.trail_lifetime_ms as u64);
         if !self.config.trail_enabled {
             self.trail_samples.clear();
+            self.trail_extents = None;
         }
         // Retire afterimages whose lifetime is over (also runs during the
         // fade-out after the pet stopped walking).
@@ -885,15 +918,27 @@ impl App {
             );
         }
         let trail_on = self.config.trail_enabled && (walking || !self.trail_samples.is_empty());
+        self.update_trail_extents();
         self.apply_window_geometry();
 
         let (full_w, full_h) = self.renderer.size();
-        let pad = self.trail_pad_px();
-        let stage_w = full_w + pad * 2;
-        let stage_h = full_h + pad * 2;
-        let dpi = self.state.dpi.max(0.01);
+        let dpi_f = self.state.dpi.max(0.01);
         let tight = self.state.window_rect();
-        let desired = self.stage_rect_px();
+        // For a plain (non-trail) present the source is the tight frame itself;
+        // using the window stage here can be one pixel larger after rounding and
+        // would make `crop_into` read past the frame.
+        let desired = if trail_on {
+            self.stage_rect_px()
+        } else {
+            Rect::new(
+                tight.x * dpi_f,
+                tight.y * dpi_f,
+                full_w.max(1) as f32,
+                full_h.max(1) as f32,
+            )
+        };
+        let stage_w = desired.w.round().max(1.0) as u32;
+        let stage_h = desired.h.round().max(1.0) as u32;
         // Clip to the usable area of the display the pet is on.  Both rects are
         // physical here; the window itself is positioned in logical points.
         let visible = desired.intersect(self.active_display_bounds_px());
@@ -901,10 +946,20 @@ impl App {
         let oy = ((visible.y - desired.y).round().max(0.0) as u32).min(stage_h.saturating_sub(1));
         let crop_w = (visible.w.round() as u32).min(stage_w - ox).max(1);
         let crop_h = (visible.h.round() as u32).min(stage_h - oy).max(1);
-        let dpi = dpi as f64;
+        let dpi = dpi_f as f64;
         let anchor = self.state.anchor;
         let lifetime_secs = self.config.trail_lifetime_ms as f32 / 1000.0;
         let opacity = self.config.trail_opacity;
+        let current_left = if trail_on {
+            ((tight.x * dpi_f) - desired.x).round() as i32
+        } else {
+            0
+        };
+        let current_top = if trail_on {
+            ((tight.y * dpi_f) - desired.y).round() as i32
+        } else {
+            0
+        };
         {
             // Split borrows: the renderer/history are read, the stage and crop
             // buffers are written, and only then is the presenter called.
@@ -920,22 +975,22 @@ impl App {
             if trail_on {
                 let mut ghosts = Vec::with_capacity(trail_samples.len());
                 for sample in trail_samples.iter() {
-                    if sample.width != full_w || sample.height != full_h {
-                        continue;
-                    }
                     let age = now.saturating_duration_since(sample.at).as_secs_f32();
                     let alpha = trail::alpha_at(age, lifetime_secs, opacity);
                     if alpha <= 0.002 {
                         continue;
                     }
+                    // Pin each ghost by the anchor inside *its own* frame.  Walk
+                    // directions have different glow margins/sizes; assuming the
+                    // current frame's size dropped the whole trail on every
+                    // direction change.
+                    let ghost = ghost_frame_origin(sample.anchor, sample.anchor_in_frame, dpi_f);
                     ghosts.push(GhostFrame {
                         pixels: &sample.pixels,
                         width: sample.width,
                         height: sample.height,
-                        left: pad as i32
-                            + ((sample.anchor.x - anchor.x) * dpi as f32).round() as i32,
-                        top: pad as i32
-                            + ((sample.anchor.y - anchor.y) * dpi as f32).round() as i32,
+                        left: (ghost.x - desired.x).round() as i32,
+                        top: (ghost.y - desired.y).round() as i32,
                         alpha,
                     });
                 }
@@ -943,7 +998,14 @@ impl App {
                 // up over the older (fainter) ones.
                 trail_buf.resize(stage_w as usize * stage_h as usize * 4, 0);
                 compose_trail(
-                    trail_buf, stage_w, stage_h, full, full_w, full_h, pad as i32, pad as i32,
+                    trail_buf,
+                    stage_w,
+                    stage_h,
+                    full,
+                    full_w,
+                    full_h,
+                    current_left,
+                    current_top,
                     &ghosts,
                 );
                 Self::present_cropped(
@@ -970,16 +1032,14 @@ impl App {
                 let mut pixels = self.renderer.rgba8().to_vec();
                 // The ground shadow is not part of the character; strip it so
                 // the trail does not leave a second shadow smear.
-                let anchor_in_frame = (
-                    (anchor.x - tight.x) * dpi as f32,
-                    (anchor.y - tight.y) * dpi as f32,
-                );
+                let anchor_in_frame = ((anchor.x - tight.x) * dpi_f, (anchor.y - tight.y) * dpi_f);
                 strip_ground_shadow(&mut pixels, full_w, full_h, anchor_in_frame);
                 self.trail_samples.push_back(TrailSample {
                     pixels,
                     width: full_w,
                     height: full_h,
                     anchor,
+                    anchor_in_frame,
                     at: now,
                 });
                 while self.trail_samples.len() > TRAIL_MAX_SAMPLES {
@@ -1029,8 +1089,11 @@ impl App {
                 tracing::warn!(%err, "present failed");
             }
         } else {
-            Self::crop_into(src, src_w, ox, oy, crop_w, crop_h, crop_buf);
-            if let Err(err) = presenter.present(crop_buf, crop_w, crop_h, dpi) {
+            let (w, h) = Self::crop_into(src, src_w, ox, oy, crop_w, crop_h, crop_buf);
+            if w == 0 || h == 0 {
+                return;
+            }
+            if let Err(err) = presenter.present(crop_buf, w, h, dpi) {
                 tracing::warn!(%err, "present failed");
             }
         }
@@ -1060,8 +1123,8 @@ impl App {
         }
     }
 
-    /// Desired stage rect in physical global pixels (canvas + glow + trail).
-    fn stage_rect_px(&self) -> Rect {
+    /// Current frame + trail pad (no afterimages), physical global pixels.
+    fn current_stage_base_px(&self) -> Rect {
         let dpi = self.state.dpi.max(0.01);
         let tight = self.state.window_rect();
         let (full_w, full_h) = self.renderer.size();
@@ -1069,19 +1132,82 @@ impl App {
         if full_w == 0 || full_h == 0 {
             // Before the first animation load the renderer has no size yet; use
             // the state's canvas so the initial window is sane.
-            return Rect::new(
+            Rect::new(
                 tight.x * dpi,
                 tight.y * dpi,
                 (tight.w * dpi).round().max(1.0),
                 (tight.h * dpi).round().max(1.0),
+            )
+        } else {
+            Rect::new(
+                tight.x * dpi - pad,
+                tight.y * dpi - pad,
+                full_w as f32 + pad * 2.0,
+                full_h as f32 + pad * 2.0,
+            )
+        }
+    }
+
+    /// Recomputes the stable stage extents relative to the anchor.
+    ///
+    /// Extents only grow while the trail lives; letting them shrink as samples
+    /// expire would resize the window (and shift its origin) every ~120 ms,
+    /// which reads as flicker.  They reset once the walk and all ghosts are
+    /// gone.
+    fn update_trail_extents(&mut self) {
+        let walking = self.state.mode == Mode::Walk;
+        if !self.config.trail_enabled || (!walking && self.trail_samples.is_empty()) {
+            self.trail_extents = None;
+            return;
+        }
+        let dpi = self.state.dpi.max(0.01);
+        let anchor = self.state.anchor;
+        let anchor_px = Point::new(anchor.x * dpi, anchor.y * dpi);
+        let mut bounds = self.current_stage_base_px();
+        for sample in &self.trail_samples {
+            let origin = ghost_frame_origin(sample.anchor, sample.anchor_in_frame, dpi);
+            let ghost = Rect::new(
+                origin.x,
+                origin.y,
+                sample.width as f32,
+                sample.height as f32,
+            );
+            bounds = union_rect(bounds, ghost);
+        }
+        // Store integer extents relative to the anchor, rounded outward.
+        let x = (bounds.x - anchor_px.x).floor();
+        let y = (bounds.y - anchor_px.y).floor();
+        let right = (bounds.right() - anchor_px.x).ceil();
+        let bottom = (bounds.bottom() - anchor_px.y).ceil();
+        let relative = Rect::new(x, y, (right - x).max(1.0), (bottom - y).max(1.0));
+        self.trail_extents = Some(match self.trail_extents {
+            Some(previous) => union_rect(previous, relative),
+            None => relative,
+        });
+    }
+
+    /// Desired stage rect in physical global pixels (canvas + glow + trail).
+    ///
+    /// While a trail is alive the rect is the anchor plus the stable cached
+    /// extents.  That keeps the stage size constant across direction changes
+    /// (walk directions have different glow margins) and as old ghosts expire.
+    fn stage_rect_px(&self) -> Rect {
+        if let Some(extents) = self.trail_extents {
+            let dpi = self.state.dpi.max(0.01);
+            return Rect::new(
+                self.state.anchor.x * dpi + extents.x,
+                self.state.anchor.y * dpi + extents.y,
+                extents.w,
+                extents.h,
             );
         }
-        Rect::new(
-            tight.x * dpi - pad,
-            tight.y * dpi - pad,
-            full_w as f32 + pad * 2.0,
-            full_h as f32 + pad * 2.0,
-        )
+        let base = self.current_stage_base_px();
+        // Round outward so a fractional frame origin is not clipped.
+        let x = base.x.floor();
+        let y = base.y.floor();
+        let right = base.right().ceil();
+        let bottom = base.bottom().ceil();
+        Rect::new(x, y, (right - x).max(1.0), (bottom - y).max(1.0))
     }
 
     /// Physical pixels of the usable area of the display the pet is on.
@@ -1321,13 +1447,36 @@ impl App {
 
     /// Copies a sub-rectangle of an RGBA frame (used when the window had to be
     /// clipped at a screen edge).
-    fn crop_into(src: &[u8], src_w: u32, x: u32, y: u32, w: u32, h: u32, out: &mut Vec<u8>) {
+    /// Crops `src` into `out`, returning the size actually written.
+    fn crop_into(
+        src: &[u8],
+        src_w: u32,
+        x: u32,
+        y: u32,
+        w: u32,
+        h: u32,
+        out: &mut Vec<u8>,
+    ) -> (u32, u32) {
         out.clear();
+        if src_w == 0 || w == 0 || h == 0 {
+            return (0, 0);
+        }
+        // Clamp defensively: geometry changes between sizing and presentation
+        // must never read past the frame.
+        let x = x.min(src_w - 1);
+        let w = w.min(src_w - x);
+        let src_h = (src.len() / 4 / src_w as usize) as u32;
+        let y = y.min(src_h.saturating_sub(1));
+        let h = h.min(src_h.saturating_sub(y));
+        if h == 0 {
+            return (0, 0);
+        }
         out.reserve((w as usize) * (h as usize) * 4);
         for row in y..y + h {
             let start = ((row as usize) * (src_w as usize) + (x as usize)) * 4;
             out.extend_from_slice(&src[start..start + (w as usize) * 4]);
         }
+        (w, h)
     }
 
     /// Reloads the renderer at the current scale while keeping the animation
@@ -1338,6 +1487,7 @@ impl App {
         // History frames have the old pixel size and would be misaligned.
         self.trail_samples.clear();
         self.trail_stage_pad = 0;
+        self.trail_extents = None;
         self.last_window_size = None;
         let scale = self.state.scale * self.state.dpi;
         let load_started = Instant::now();
@@ -1714,6 +1864,7 @@ impl App {
         // line up and are simply dropped.
         self.trail_samples.clear();
         self.trail_stage_pad = 0;
+        self.trail_extents = None;
         self.roam = self.compute_roam_area();
         self.state.clamp_to(&self.roam);
         self.sync_animation(now, false, "state-change");
@@ -1871,6 +2022,7 @@ impl App {
         if !enabled {
             self.trail_samples.clear();
             self.trail_stage_pad = 0;
+            self.trail_extents = None;
         }
         self.finish_trail_change(now, true);
     }
@@ -1930,6 +2082,7 @@ impl App {
         if !self.config.trail_enabled {
             self.trail_samples.clear();
             self.trail_stage_pad = 0;
+            self.trail_extents = None;
         }
         if self.state.mode == Mode::Walk {
             self.trail_stage_pad = trail::pad_px(
@@ -2934,6 +3087,46 @@ mod tests {
             1.5,
             Point::new(center.x - 20.0, center.y - 20.0)
         ));
+    }
+
+    #[test]
+    fn ghost_frames_with_different_glow_pads_pin_to_their_own_anchor() {
+        let dpi = 2.0;
+        let anchor = Point::new(1000.0, 500.0);
+        // Same screen anchor, but two walk directions with different margins.
+        let small = ghost_frame_origin(anchor, (10.0, 20.0), dpi);
+        let large = ghost_frame_origin(anchor, (14.0, 26.0), dpi);
+        assert!((small.x + 10.0 - anchor.x * dpi).abs() < 1e-3);
+        assert!((small.y + 20.0 - anchor.y * dpi).abs() < 1e-3);
+        assert!((large.x + 14.0 - anchor.x * dpi).abs() < 1e-3);
+        assert!((large.y + 26.0 - anchor.y * dpi).abs() < 1e-3);
+        assert_ne!(
+            small, large,
+            "different frame paddings need different origins"
+        );
+    }
+
+    #[test]
+    fn stage_union_keeps_mixed_size_ghosts_inside() {
+        let current = Rect::new(100.0, 100.0, 294.0, 315.0);
+        let ghost = Rect::new(80.0, 90.0, 318.0, 339.0);
+        let union = union_rect(current, ghost);
+        assert!(union.x <= ghost.x && union.y <= ghost.y);
+        assert!(union.right() >= ghost.right());
+        assert!(union.bottom() >= ghost.bottom());
+        assert_eq!(union, Rect::new(80.0, 90.0, 318.0, 339.0));
+    }
+
+    #[test]
+    fn crop_into_clamps_out_of_bounds() {
+        let src = vec![255u8; 4 * 4 * 4];
+        let mut out = Vec::new();
+        // The window stage can be one pixel larger than the tight frame after
+        // rounding; the crop must clamp instead of panicking.
+        assert_eq!(App::crop_into(&src, 4, 0, 0, 5, 5, &mut out), (4, 4));
+        assert_eq!(out.len(), 4 * 4 * 4);
+        assert_eq!(App::crop_into(&src, 4, 3, 3, 9, 9, &mut out), (1, 1));
+        assert_eq!(out.len(), 4);
     }
 
     #[test]
