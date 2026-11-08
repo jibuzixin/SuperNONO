@@ -3,9 +3,14 @@
 //! The window is frameless, transparent, always on top and exactly the size of
 //! the current animation canvas.  Its position is derived from the pet anchor so
 //! switching between animations does not make the character jump.
+//!
+//! `rect` is in **logical global points**; winit converts it to the platform's
+//! window coordinates.  Using logical positions (instead of physical pixels)
+//! avoids the per-monitor backing scale ambiguity when the pet crosses displays
+//! with different DPI.
 
 use nono_core::Rect;
-use winit::dpi::{PhysicalPosition, PhysicalSize};
+use winit::dpi::{LogicalPosition, LogicalSize};
 use winit::event_loop::ActiveEventLoop;
 use winit::window::{Window, WindowLevel};
 
@@ -21,10 +26,10 @@ pub fn create_pet_window(
         .with_visible(true)
         .with_active(false)
         .with_window_level(WindowLevel::AlwaysOnTop)
-        .with_inner_size(PhysicalSize::new(
-            rect.w.max(1.0) as u32,
-            rect.h.max(1.0) as u32,
+        .with_inner_size(LogicalSize::new(
+            rect.w.max(1.0) as f64,
+            rect.h.max(1.0) as f64,
         ))
-        .with_position(PhysicalPosition::new(rect.x as i32, rect.y as i32));
+        .with_position(LogicalPosition::new(rect.x as f64, rect.y as f64));
     event_loop.create_window(attributes)
 }

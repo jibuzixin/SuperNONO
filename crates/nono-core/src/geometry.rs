@@ -161,16 +161,17 @@ impl Direction {
 
 /// Window rect that puts the pet's anchor (feet) at `anchor` on screen.
 ///
-/// `scale` is the user-facing zoom, `dpi` the monitor scale factor; both are
-/// multiplied so the vector art is rasterised at physical resolution.
+/// `anchor` is in logical global points and `scale` is the user-facing zoom
+/// (canvas units → logical points).  The backing scale factor is applied only
+/// at the rendering boundary, so an anchor stays on the same spot even when
+/// monitors with different scale factors are involved.
 pub fn pet_window_rect(
     anchor: Point,
     canvas: (f32, f32),
     pet_anchor: (f32, f32),
     scale: f32,
-    dpi: f32,
 ) -> Rect {
-    let s = (scale * dpi).max(0.01);
+    let s = scale.max(0.01);
     Rect::new(
         anchor.x - pet_anchor.0 * s,
         anchor.y - pet_anchor.1 * s,
@@ -198,12 +199,12 @@ mod tests {
 
     #[test]
     fn anchor_maps_to_window_origin() {
-        // Walk canvas 66x96, anchor (33, 90), scale 1.5, dpi 2 => s = 3.
-        let r = pet_window_rect(Point::new(1000.0, 800.0), (66.0, 96.0), (33.0, 90.0), 1.5, 2.0);
-        assert_eq!(r.x, 1000.0 - 99.0);
-        assert_eq!(r.y, 800.0 - 270.0);
-        assert_eq!(r.w, 198.0);
-        assert_eq!(r.h, 288.0);
+        // Walk canvas 66x96, anchor (33, 90), user zoom 1.5 => 99x144 points.
+        let r = pet_window_rect(Point::new(1000.0, 800.0), (66.0, 96.0), (33.0, 90.0), 1.5);
+        assert_eq!(r.x, 1000.0 - 49.5);
+        assert_eq!(r.y, 800.0 - 135.0);
+        assert_eq!(r.w, 99.0);
+        assert_eq!(r.h, 144.0);
     }
 
     #[test]

@@ -7,6 +7,7 @@
 use std::time::{Duration, Instant};
 
 use crate::catalog::{AnimationKind, AnimationSpec, Catalog};
+use crate::display::RoamArea;
 use crate::geometry::{pet_window_rect, Direction, Point, Rect};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -48,7 +49,7 @@ pub struct PetState {
     pub mode: Mode,
     pub anim: AnimationSpec,
     pub anim_started: Instant,
-    /// Screen-space position of the pet's feet (physical px).
+    /// Screen-space position of the pet's feet (logical global points).
     pub anchor: Point,
     pub facing: Direction,
     pub scale: f32,
@@ -102,10 +103,15 @@ impl PetState {
         let pad = self.glow_pad.max(0.0) * k;
         pet_window_rect(
             self.anchor,
-            (self.anim.canvas.0 * k + 2.0 * pad, self.anim.canvas.1 * k + 2.0 * pad),
-            (self.anim.pet_anchor.0 * k + pad, self.anim.pet_anchor.1 * k + pad),
+            (
+                self.anim.canvas.0 * k + 2.0 * pad,
+                self.anim.canvas.1 * k + 2.0 * pad,
+            ),
+            (
+                self.anim.pet_anchor.0 * k + pad,
+                self.anim.pet_anchor.1 * k + pad,
+            ),
             self.scale,
-            self.dpi,
         )
     }
 
@@ -119,7 +125,10 @@ impl PetState {
         self.glow_pad
     }
 
-    /// Current walking speed in physical pixels per second (0 when not walking).
+    /// Current walking speed in logical points per second (0 when not walking).
+    ///
+    /// The renderer converts it to physical px with `dpi` when sizing the trail
+    /// stage, so the felt speed is the same on every display.
     pub fn walk_speed(&self) -> f32 {
         if self.mode == Mode::Walk {
             self.walk_speed
@@ -159,7 +168,9 @@ impl PetState {
 
     /// Like [`frame`], but with a playback-speed multiplier (for the walk cycle).
     pub fn frame_at(&self, now: Instant, speed: f32) -> f32 {
-        let elapsed = now.saturating_duration_since(self.anim_started).as_secs_f32();
+        let elapsed = now
+            .saturating_duration_since(self.anim_started)
+            .as_secs_f32();
         let raw = elapsed * self.anim.fps * speed.max(0.01);
         let frames = self.anim.effective_frames();
         if self.anim.loop_anim {
@@ -251,7 +262,7 @@ impl PetState {
         }
     }
 
-    /// Walks in a straight line towards `target` (physical screen px).
+    /// Walks in a straight line towards `target` (logical screen points).
     ///
     /// The direction is latched at the start so the eight-way walk cycle can
     /// play without switching assets mid-step.
@@ -366,18 +377,19 @@ impl PetState {
         }
     }
 
-    /// Used by the drag handler: the pet follows the cursor.
+    /// Used by the drag handler: the pet follows the cursor (logical points).
     pub fn drag_by(&mut self, delta: Point) {
         self.anchor.x += delta.x;
         self.anchor.y += delta.y;
         self.last_tick = Instant::now();
     }
 
-    /// Keeps the pet's feet inside `bounds` after a drag or a monitor change.
-    pub fn clamp_to(&mut self, bounds: Rect) {
-        let margin = 4.0;
-        self.anchor.x = self.anchor.x.clamp(bounds.x + margin, bounds.right() - margin);
-        self.anchor.y = self.anchor.y.clamp(bounds.y + margin, bounds.bottom() - margin);
+    /// Keeps the pet's feet inside the enabled displays after a drag or a
+    /// display/monitor change.
+    pub fn clamp_to(&mut self, area: &RoamArea) {
+        let clamped = area.clamp(self.anchor);
+        self.anchor.x = clamped.x;
+        self.anchor.y = clamped.y;
     }
 }
 
@@ -399,7 +411,9 @@ mod tests {
 
     #[test]
     fn frame_at_scales_the_walk_playback_speed() {
-        let Some((_catalog, state)) = catalog_and_state() else { return };
+        let Some((_catalog, state)) = catalog_and_state() else {
+            return;
+        };
         let later = state.anim_started + Duration::from_millis(200);
         // 25 fps × 0.2 s = frame 5; at 2× speed the cycle is at frame 10.
         assert!((state.frame(later) - 5.0).abs() < 0.01);
@@ -409,7 +423,9 @@ mod tests {
 
     #[test]
     fn idle_loops_the_walk_cycle_in_place() {
-        let Some((_catalog, state)) = catalog_and_state() else { return };
+        let Some((_catalog, state)) = catalog_and_state() else {
+            return;
+        };
         let now = Instant::now();
         assert_eq!(state.mode, Mode::Idle);
         assert!(state.is_animating(), "idle keeps the walk cycle running");
@@ -417,14 +433,16 @@ mod tests {
         let later = now + Duration::from_millis(500);
         let expected = 12.5 % state.anim.frames as f32;
         assert!((state.frame(later) - expected).abs() < 0.01);
-        // 66x96 walk canvas at 1.5x on a 2x display.
-        assert_eq!(state.window_rect().w, 198.0);
-        assert_eq!(state.window_rect().h, 288.0);
+        // 66×96 walk canvas at 1.5× user zoom (logical points).
+        assert_eq!(state.window_rect().w, 99.0);
+        assert_eq!(state.window_rect().h, 144.0);
     }
 
     #[test]
     fn walking_and_stopping_keeps_the_cycle_phase() {
-        let Some((catalog, mut state)) = catalog_and_state() else { return };
+        let Some((catalog, mut state)) = catalog_and_state() else {
+            return;
+        };
         let start = Instant::now();
         let target = Point::new(state.anchor.x + 40.0, state.anchor.y);
         state.start_walk(&catalog, target, 400.0, start);
@@ -432,16 +450,22 @@ mod tests {
         let phase = state.frame(mid);
         state.idle(&catalog, mid);
         assert_eq!(state.mode, Mode::Idle);
-        assert!((state.frame(mid) - phase).abs() < 0.01, "stopping should not restart the cycle");
+        assert!(
+            (state.frame(mid) - phase).abs() < 0.01,
+            "stopping should not restart the cycle"
+        );
     }
 
     #[test]
     fn actions_can_override_the_return_facing() {
-        let Some((catalog, mut state)) = catalog_and_state() else { return };
+        let Some((catalog, mut state)) = catalog_and_state() else {
+            return;
+        };
         let start = Instant::now();
         // Form 1 battery -> face left afterwards.
         assert!(state.play_action(&catalog, "battery", start));
-        let end = start + Duration::from_secs_f32(state.anim.duration_secs()) + Duration::from_millis(20);
+        let end =
+            start + Duration::from_secs_f32(state.anim.duration_secs()) + Duration::from_millis(20);
         state.tick(&catalog, end);
         assert!(state.after_finish(&catalog, end));
         assert_eq!(state.mode, Mode::Idle);
@@ -450,7 +474,8 @@ mod tests {
         // Summon always returns to the front view.
         state.facing = Direction::Right;
         assert!(state.play_action(&catalog, "summon", end));
-        let end2 = end + Duration::from_secs_f32(state.anim.duration_secs()) + Duration::from_millis(20);
+        let end2 =
+            end + Duration::from_secs_f32(state.anim.duration_secs()) + Duration::from_millis(20);
         state.tick(&catalog, end2);
         assert!(state.after_finish(&catalog, end2));
         assert_eq!(state.facing, Direction::Down);
@@ -458,11 +483,14 @@ mod tests {
 
     #[test]
     fn form2_battery_faces_right() {
-        let Some((catalog, mut state)) = catalog_and_state() else { return };
+        let Some((catalog, mut state)) = catalog_and_state() else {
+            return;
+        };
         let start = Instant::now();
         assert!(state.set_form(&catalog, 2, start));
         assert!(state.play_action(&catalog, "battery", start));
-        let end = start + Duration::from_secs_f32(state.anim.duration_secs()) + Duration::from_millis(20);
+        let end =
+            start + Duration::from_secs_f32(state.anim.duration_secs()) + Duration::from_millis(20);
         state.tick(&catalog, end);
         assert!(state.after_finish(&catalog, end));
         assert_eq!(state.facing, Direction::Right);
@@ -470,13 +498,16 @@ mod tests {
 
     #[test]
     fn shutdown_keeps_the_facing_when_it_finishes() {
-        let Some((catalog, mut state)) = catalog_and_state() else { return };
+        let Some((catalog, mut state)) = catalog_and_state() else {
+            return;
+        };
         let start = Instant::now();
         // Form 3 has no charge animation, so it holds the final frame.
         assert!(state.set_form(&catalog, 3, start));
         state.facing = Direction::Left;
         assert!(state.play_action(&catalog, "shutdown", start));
-        let end = start + Duration::from_secs_f32(state.anim.duration_secs()) + Duration::from_millis(20);
+        let end =
+            start + Duration::from_secs_f32(state.anim.duration_secs()) + Duration::from_millis(20);
         state.tick(&catalog, end);
         assert!(!state.after_finish(&catalog, end));
         assert_eq!(state.facing, Direction::Left);
@@ -484,7 +515,9 @@ mod tests {
 
     #[test]
     fn load_pause_does_not_advance_the_animation_clock() {
-        let Some((catalog, mut state)) = catalog_and_state() else { return };
+        let Some((catalog, mut state)) = catalog_and_state() else {
+            return;
+        };
         let start = Instant::now();
         assert!(state.play_action(&catalog, "cube", start));
         // Simulate a 2 s Lottie parse; the first visible frame must still be 0.
@@ -492,12 +525,17 @@ mod tests {
         assert_eq!(state.frame(start), 0.0);
         assert_eq!(state.frame(start + Duration::from_secs(1)), 0.0);
         let frame = state.frame(start + Duration::from_millis(2400));
-        assert!((frame - 10.0).abs() < 0.01, "expected 0.4s * 25fps = 10, got {frame}");
+        assert!(
+            (frame - 10.0).abs() < 0.01,
+            "expected 0.4s * 25fps = 10, got {frame}"
+        );
     }
 
     #[test]
     fn walk_speed_can_be_adjusted_mid_walk() {
-        let Some((catalog, mut state)) = catalog_and_state() else { return };
+        let Some((catalog, mut state)) = catalog_and_state() else {
+            return;
+        };
         let start = Instant::now();
         let target = Point::new(state.anchor.x + 600.0, state.anchor.y);
         state.start_walk(&catalog, target, 400.0, start);
@@ -511,7 +549,9 @@ mod tests {
 
     #[test]
     fn walk_moves_then_returns_to_idle() {
-        let Some((catalog, mut state)) = catalog_and_state() else { return };
+        let Some((catalog, mut state)) = catalog_and_state() else {
+            return;
+        };
         let start = Instant::now();
         let target = Point::new(state.anchor.x + 160.0, state.anchor.y);
         state.start_walk(&catalog, target, 400.0, start);
@@ -535,7 +575,9 @@ mod tests {
 
     #[test]
     fn expression_finishes_and_returns_to_idle() {
-        let Some((catalog, mut state)) = catalog_and_state() else { return };
+        let Some((catalog, mut state)) = catalog_and_state() else {
+            return;
+        };
         let start = Instant::now();
         assert!(state.play_expression(&catalog, "happy", start));
         assert_eq!(state.mode, Mode::Expression);
@@ -548,10 +590,13 @@ mod tests {
 
     #[test]
     fn shutdown_enters_a_looping_charge_when_available() {
-        let Some((catalog, mut state)) = catalog_and_state() else { return };
+        let Some((catalog, mut state)) = catalog_and_state() else {
+            return;
+        };
         let start = Instant::now();
         assert!(state.play_action(&catalog, "shutdown", start));
-        let end = start + Duration::from_secs_f32(state.anim.duration_secs()) + Duration::from_millis(20);
+        let end =
+            start + Duration::from_secs_f32(state.anim.duration_secs()) + Duration::from_millis(20);
         state.tick(&catalog, end);
         assert!(state.after_finish(&catalog, end));
         assert_eq!(state.mode, Mode::Action);
@@ -567,11 +612,14 @@ mod tests {
 
     #[test]
     fn form3_shutdown_holds_the_last_frame() {
-        let Some((catalog, mut state)) = catalog_and_state() else { return };
+        let Some((catalog, mut state)) = catalog_and_state() else {
+            return;
+        };
         let start = Instant::now();
         assert!(state.set_form(&catalog, 3, start));
         assert!(state.play_action(&catalog, "shutdown", start));
-        let now = start + Duration::from_secs_f32(state.anim.duration_secs()) + Duration::from_millis(20);
+        let now =
+            start + Duration::from_secs_f32(state.anim.duration_secs()) + Duration::from_millis(20);
         state.tick(&catalog, now);
         assert!(!state.after_finish(&catalog, now));
         assert_eq!(state.mode, Mode::Action);

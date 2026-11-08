@@ -212,12 +212,14 @@ impl Renderer {
         let mut passes = Vec::with_capacity(specs.len());
         for spec in specs {
             let mut anim = self.engine().lottie_animation()?;
-            let path = spec
-                .path
-                .to_str()
-                .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "non-utf8 glow path"))?;
+            let path = spec.path.to_str().ok_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::InvalidInput, "non-utf8 glow path")
+            })?;
             anim.load_file(path)?;
-            anim.set_size((w as f32 - pad * 2.0).max(1.0), (h as f32 - pad * 2.0).max(1.0))?;
+            anim.set_size(
+                (w as f32 - pad * 2.0).max(1.0),
+                (h as f32 - pad * 2.0).max(1.0),
+            )?;
             anim.picture_mut().translate(pad, pad)?;
             // `dpi` is canvas units → buffer pixels; `scale` is the glow
             // buffer's own resolution relative to the main buffer.
@@ -274,7 +276,13 @@ impl Renderer {
         if self.glow_passes.is_empty() {
             return;
         }
-        let Self { buffer, width, height, glow_passes, .. } = self;
+        let Self {
+            buffer,
+            width,
+            height,
+            glow_passes,
+            ..
+        } = self;
         let main = unsafe {
             std::slice::from_raw_parts_mut(buffer.as_mut_ptr() as *mut u8, buffer.len() * 4)
         };
@@ -314,9 +322,10 @@ impl Renderer {
         }
     }
 
-    /// Body hit circle in canvas units relative to the pet anchor
-    /// `(dx, dy, radius)`.  Computed from the tinted body pixels, so it follows
-    /// the current pose and ignores transparent areas/fins/props.
+    /// Body hit circle `(dx, dy, radius)` in **placement-scaled canvas units**
+    /// relative to the pet anchor.  Multiply by the user zoom to get logical
+    /// screen points.  Computed from the tinted body pixels, so it follows the
+    /// current pose and ignores transparent areas/fins/props.
     pub fn body_hit(&self) -> Option<(f32, f32, f32)> {
         self.body_hit
     }
@@ -389,7 +398,13 @@ impl Renderer {
         }
         // Largest connected component near the pet anchor (the body); effects,
         // bubbles and props are either smaller or farther away.
+        //
+        // Units: `spec_anchor` is in (placement-scaled) canvas units and
+        // `scale` converts those to pixels.  The glow margin is *pixels* and
+        // must be removed before dividing, otherwise the whole hit circle is
+        // shifted up/left by the margin (most visible at Retina scale).
         let scale = self.pixel_scale.max(0.01);
+        let pad_px = self.base_px.0;
         let anchor = self.spec_anchor;
         let mut seen = vec![false; gw * gh];
         let mut best: Option<(usize, (usize, usize, usize, usize))> = None;
@@ -423,8 +438,8 @@ impl Renderer {
                         }
                     }
                 }
-                let ccx = (min_x + max_x) as f32 * stride as f32 / 2.0 / scale;
-                let ccy = (min_y + max_y) as f32 * stride as f32 / 2.0 / scale;
+                let ccx = ((min_x + max_x) as f32 * stride as f32 * 0.5 - pad_px) / scale;
+                let ccy = ((min_y + max_y) as f32 * stride as f32 * 0.5 - pad_px) / scale;
                 let dist = ((ccx - anchor.0).powi(2) + (ccy - anchor.1).powi(2)).sqrt();
                 if dist > 110.0 {
                     continue;
@@ -437,8 +452,8 @@ impl Renderer {
         let Some((_, (min_x, min_y, max_x, max_y))) = best else {
             return;
         };
-        let cx = (min_x + max_x) as f32 * stride as f32 / 2.0 / scale - anchor.0;
-        let cy = (min_y + max_y) as f32 * stride as f32 / 2.0 / scale - anchor.1;
+        let cx = ((min_x + max_x) as f32 * stride as f32 * 0.5 - pad_px) / scale - anchor.0;
+        let cy = ((min_y + max_y) as f32 * stride as f32 * 0.5 - pad_px) / scale - anchor.1;
         let rw = (max_x - min_x) as f32 * stride as f32 / scale;
         let rh = (max_y - min_y) as f32 * stride as f32 / scale;
         let radius = 0.5 * rw.min(rh);
@@ -485,7 +500,9 @@ impl Renderer {
         };
         let max_blur = specs.iter().map(|s| s.blur).fold(0.0f32, f32::max);
         let pad_units = if max_blur > 0.0 {
-            (max_blur * self.glow.sigma_scale * 2.6).ceil().clamp(1.0, 64.0)
+            (max_blur * self.glow.sigma_scale * 2.6)
+                .ceil()
+                .clamp(1.0, 64.0)
         } else {
             0.0
         };
@@ -524,13 +541,7 @@ impl Renderer {
             // moves), and is at least `width * height` long.  It is replaced
             // only after `set_target` is called again.
             unsafe {
-                canvas.set_target(
-                    &mut self.buffer,
-                    width,
-                    width,
-                    height,
-                    ColorSpace::ABGR8888,
-                )?;
+                canvas.set_target(&mut self.buffer, width, width, height, ColorSpace::ABGR8888)?;
             }
         }
 
@@ -607,11 +618,9 @@ impl Renderer {
                 release_allocator_memory();
             }
         } else {
-            anim.load_file(
-                spec.file
-                    .to_str()
-                    .ok_or_else(|| std::io::Error::new(std::io::ErrorKind::InvalidInput, "non-utf8 path"))?,
-            )?;
+            anim.load_file(spec.file.to_str().ok_or_else(|| {
+                std::io::Error::new(std::io::ErrorKind::InvalidInput, "non-utf8 path")
+            })?)?;
         }
         // Per-animation placement correction (see assets/tuning.json).
         // Scaling happens around the pet anchor so the feet stay put.  A start
@@ -623,10 +632,8 @@ impl Renderer {
         let start = placement.offset_start.unwrap_or(placement.offset);
         let base_x = pad;
         let base_y = pad;
-        anim.picture_mut().translate(
-            pad + start.0 * scale * k,
-            pad + start.1 * scale * k,
-        )?;
+        anim.picture_mut()
+            .translate(pad + start.0 * scale * k, pad + start.1 * scale * k)?;
         self.placement = placement;
         self.applied_offset = start;
         self.base_px = (base_x, base_y);
@@ -652,7 +659,9 @@ impl Renderer {
         canvas.update()?;
         canvas.draw(true)?;
         canvas.sync()?;
-        self.spec_anchor = (spec.pet_anchor.0 * k + pad, spec.pet_anchor.1 * k + pad);
+        // Body-hit math wants the anchor in placement-scaled canvas units; the
+        // glow margin is handled separately in `update_body_hit`.
+        self.spec_anchor = (spec.pet_anchor.0 * k, spec.pet_anchor.1 * k);
         if let Err(err) = self.load_glow(&spec.file, specs, inner_w, inner_h, pad, scale * k) {
             tracing::warn!(%err, file = %spec.file.display(), "glow passes unavailable");
         }
@@ -672,10 +681,7 @@ impl Renderer {
         let target = frame.max(0.0);
         // Interpolate the placement offset so animations whose start and end
         // need different corrections (form-2 boot) stay aligned at both ends.
-        let start = self
-            .placement
-            .offset_start
-            .unwrap_or(self.placement.offset);
+        let start = self.placement.offset_start.unwrap_or(self.placement.offset);
         let end = self.placement.offset;
         let t = if self.frame_count > 1 {
             (target / (self.frame_count - 1) as f32).clamp(0.0, 1.0)
@@ -948,8 +954,7 @@ fn blend_layer(
             }
             let inv = 1.0 - sa;
             for c in 0..4 {
-                dst[di + c] =
-                    (src[si + c] as f32 * alpha + dst[di + c] as f32 * inv).round() as u8;
+                dst[di + c] = (src[si + c] as f32 * alpha + dst[di + c] as f32 * inv).round() as u8;
             }
         }
     }
@@ -985,17 +990,26 @@ fn tinted_cache_path(dir: &Path, file: &Path, tint: [u8; 3]) -> Option<PathBuf> 
     mtime.hash(&mut hasher);
     tint.hash(&mut hasher);
     "nono-tint-v1".hash(&mut hasher);
-    Some(dir.join("tinted").join(format!("{:016x}.json", hasher.finish())))
+    Some(
+        dir.join("tinted")
+            .join(format!("{:016x}.json", hasher.finish())),
+    )
 }
 
 /// Writes the tinted copy for `file` if the cache does not have it yet.
 fn ensure_tinted(cache_dir: &Path, file: &Path, tint: [u8; 3]) {
-    let Some(path) = tinted_cache_path(cache_dir, file, tint) else { return };
+    let Some(path) = tinted_cache_path(cache_dir, file, tint) else {
+        return;
+    };
     if path.is_file() {
         return;
     }
-    let Ok(bytes) = std::fs::read(file) else { return };
-    let Ok(tinted) = tint_lottie_json(&bytes, tint) else { return };
+    let Ok(bytes) = std::fs::read(file) else {
+        return;
+    };
+    let Ok(tinted) = tint_lottie_json(&bytes, tint) else {
+        return;
+    };
     if let Some(parent) = path.parent() {
         let _ = std::fs::create_dir_all(parent);
     }
@@ -1258,7 +1272,11 @@ fn recolor_rgb(components: &mut [JsonTree], tint: [u8; 3], dye: &str, animated: 
     let brightness = r.max(g).max(b).clamp(0.0, 1.0);
     // A static solid fill is exactly the chosen colour; everything else keeps
     // its original brightness so the shading and keyframed fades survive.
-    let factor = if dye == "solid" && !animated { 1.0 } else { brightness };
+    let factor = if dye == "solid" && !animated {
+        1.0
+    } else {
+        brightness
+    };
     components[0] = JsonTree::number(tint[0] as f32 / 255.0 * factor);
     components[1] = JsonTree::number(tint[1] as f32 / 255.0 * factor);
     components[2] = JsonTree::number(tint[2] as f32 / 255.0 * factor);
@@ -1278,7 +1296,10 @@ mod tests {
     /// (which shifts every pixel by the halo padding).
     fn test_renderer() -> Renderer {
         let mut renderer = Renderer::new().unwrap();
-        renderer.set_glow(GlowSettings { enabled: false, ..GlowSettings::default() });
+        renderer.set_glow(GlowSettings {
+            enabled: false,
+            ..GlowSettings::default()
+        });
         renderer
     }
 
@@ -1292,7 +1313,11 @@ mod tests {
         let engine = Thorvg::init().unwrap();
         let mut canvas = engine.sw_canvas(EngineOption::Default).unwrap();
         let mut buffer = vec![0u32; 8 * 8];
-        unsafe { canvas.set_target(&mut buffer, 8, 8, 8, ColorSpace::ABGR8888).unwrap() };
+        unsafe {
+            canvas
+                .set_target(&mut buffer, 8, 8, 8, ColorSpace::ABGR8888)
+                .unwrap()
+        };
         let mut shape = engine.shape().unwrap();
         shape
             .append_rect(thorvg::Rect::new(0.0, 0.0, 8.0, 8.0))
@@ -1305,10 +1330,13 @@ mod tests {
         canvas.draw(true).unwrap();
         canvas.sync().unwrap();
 
-        let bytes = unsafe {
-            std::slice::from_raw_parts(buffer.as_ptr() as *const u8, buffer.len() * 4)
-        };
-        assert_eq!(&bytes[0..4], &[255, 0, 0, 255], "expected RGBA memory order");
+        let bytes =
+            unsafe { std::slice::from_raw_parts(buffer.as_ptr() as *const u8, buffer.len() * 4) };
+        assert_eq!(
+            &bytes[0..4],
+            &[255, 0, 0, 255],
+            "expected RGBA memory order"
+        );
     }
 
     #[test]
@@ -1390,7 +1418,10 @@ mod tests {
         fn first_static_fill(node: &serde_json::Value, dye: Option<&str>) -> Option<Vec<f64>> {
             match node {
                 serde_json::Value::Object(map) => {
-                    let is_fill = matches!(map.get("ty").and_then(|v| v.as_str()), Some("fl") | Some("st"));
+                    let is_fill = matches!(
+                        map.get("ty").and_then(|v| v.as_str()),
+                        Some("fl") | Some("st")
+                    );
                     if is_fill {
                         let tag = map
                             .get("nono")
@@ -1398,7 +1429,13 @@ mod tests {
                             .and_then(|n| n.get("dye"))
                             .and_then(|v| v.as_str());
                         let c = map.get("c").and_then(|v| v.as_object());
-                        let static_color = c.and_then(|c| if c.get("a").and_then(|v| v.as_i64()).unwrap_or(0) == 0 { c.get("k") } else { None });
+                        let static_color = c.and_then(|c| {
+                            if c.get("a").and_then(|v| v.as_i64()).unwrap_or(0) == 0 {
+                                c.get("k")
+                            } else {
+                                None
+                            }
+                        });
                         if let Some(k) = static_color.and_then(|v| v.as_array()) {
                             if k.len() >= 3 && tag == dye {
                                 return Some(k.iter().take(3).filter_map(|v| v.as_f64()).collect());
@@ -1425,10 +1462,17 @@ mod tests {
         }
         let solid_before = first_static_fill(&before, Some("solid")).expect("a solid-tagged fill");
         let solid_after = first_static_fill(&after, Some("solid")).expect("a solid-tagged fill");
-        assert_eq!(solid_after, vec![1.0, 0.0, 0.0], "solid fills become the exact tint");
+        assert_eq!(
+            solid_after,
+            vec![1.0, 0.0, 0.0],
+            "solid fills become the exact tint"
+        );
         let untagged_before = first_static_fill(&before, None).expect("an untagged fill");
         let untagged_after = first_static_fill(&after, None).expect("an untagged fill");
-        assert_eq!(untagged_before, untagged_after, "untagged fills must not be touched");
+        assert_eq!(
+            untagged_before, untagged_after,
+            "untagged fills must not be touched"
+        );
     }
 
     #[test]
@@ -1466,6 +1510,50 @@ mod tests {
         assert!(radius > 5.0 && radius < 80.0, "radius {radius}");
         assert!(dy < 0.0, "body sits above the feet");
         assert!(dx.abs() < 30.0, "body near the anchor X");
+    }
+
+    #[test]
+    fn body_hit_is_independent_of_the_glow_margin() {
+        let _guard = THORVG_LOCK.lock().unwrap();
+        let root = assets_root();
+        if !root.join("catalog.json").is_file() {
+            return;
+        }
+        let catalog = Catalog::load(root).unwrap();
+        let spec = catalog.walk_spec(2, Direction::Down).unwrap();
+
+        let mut plain = test_renderer();
+        plain.load(&spec, 3.0).unwrap();
+        plain.render_frame(0.0).unwrap();
+        let plain_hit = plain.body_hit().expect("plain body hit");
+
+        let mut glow = Renderer::new().unwrap();
+        glow.set_glow(GlowSettings {
+            enabled: true,
+            ..GlowSettings::default()
+        });
+        glow.load(&spec, 3.0).unwrap();
+        assert!(
+            glow.glow_pad() > 0.0,
+            "this animation should have a glow margin"
+        );
+        glow.render_frame(0.0).unwrap();
+        let glow_hit = glow.body_hit().expect("glowing body hit");
+
+        // The halo margin is transparent padding; it must not shift or resize
+        // the clickable body circle.
+        assert!(
+            (plain_hit.0 - glow_hit.0).abs() < 1.5,
+            "{plain_hit:?} vs {glow_hit:?}"
+        );
+        assert!(
+            (plain_hit.1 - glow_hit.1).abs() < 1.5,
+            "{plain_hit:?} vs {glow_hit:?}"
+        );
+        assert!(
+            (plain_hit.2 - glow_hit.2).abs() < 2.0,
+            "{plain_hit:?} vs {glow_hit:?}"
+        );
     }
 
     #[test]
@@ -1615,10 +1703,18 @@ mod tests {
         strip_ground_shadow(&mut frame, 8, 8, (4.0, 6.0));
 
         for (x, y) in [(2, 1), (3, 1), (2, 2), (3, 2)] {
-            assert_eq!(alpha_at(&frame, 8, x, y), 255, "pet pixel ({x},{y}) was erased");
+            assert_eq!(
+                alpha_at(&frame, 8, x, y),
+                255,
+                "pet pixel ({x},{y}) was erased"
+            );
         }
         for (x, y) in [(3, 5), (4, 5), (3, 6), (4, 6), (2, 6), (5, 6), (2, 5)] {
-            assert_eq!(alpha_at(&frame, 8, x, y), 0, "shadow pixel ({x},{y}) survived");
+            assert_eq!(
+                alpha_at(&frame, 8, x, y),
+                0,
+                "shadow pixel ({x},{y}) survived"
+            );
         }
     }
 
@@ -1670,7 +1766,9 @@ mod tests {
                 for x in 0..w {
                     let dx = x as f32 - anchor.0;
                     let dy = y as f32 - anchor.1;
-                    if dx * dx + dy * dy <= 30.0 * 30.0 && alpha_at(frame, w as usize, x as usize, y as usize) > 0 {
+                    if dx * dx + dy * dy <= 30.0 * 30.0
+                        && alpha_at(frame, w as usize, x as usize, y as usize) > 0
+                    {
                         count += 1;
                     }
                 }
@@ -1685,7 +1783,10 @@ mod tests {
         let after_near = near_anchor(&frame);
         let after_total = opaque(&frame);
 
-        assert!(before_near > 0, "expected a ground shadow around the anchor");
+        assert!(
+            before_near > 0,
+            "expected a ground shadow around the anchor"
+        );
         assert_eq!(after_near, 0, "the ground shadow component must be erased");
         assert!(
             after_total > 100 && after_total < before_total,

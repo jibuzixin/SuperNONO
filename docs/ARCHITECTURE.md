@@ -39,14 +39,15 @@
 - `--trace` 会把每条事件以 JSON 打到 stderr，便于调试插件和 Agent。
 
 已定义的事件：`UserInput`、`UserClick`、`DragStarted/Ended`、`PlayAnimation`、
-`AnimationFinished`、`ChangeState`、`ChangeForm`、`SetScale`、`SetTrail`、`SetSpeed`、
-`AssetLoaded/Error`、`ExtensionEvent`、`AgentRequest/Reply/Error`。新增事件只需在
-`Event` 枚举加一个变体。
+`AnimationFinished`、`ChangeState`、`ChangeForm`、`SetScale`、`SetDisplays`、`Summoned`、
+`SetTrail`、`SetSpeed`、`AssetLoaded/Error`、`ExtensionEvent`、`AgentRequest/Reply/Error`。
+新增事件只需在 `Event` 枚举加一个变体。
 
 ## 3. 角色状态机
 
 `nono_core::PetState` 持有：当前形态、状态、动画规格、播放起点、屏幕锚点（脚底
-坐标）、朝向、缩放/DPI。
+坐标）、朝向、缩放/DPI。锚点是**逻辑全局坐标**（主屏左上角为原点、单位为 points），
+`dpi` 只在渲染/窗口边界用于换算物理像素；这样混合 DPI 的多屏坐标仍然连续。
 
 | 状态 | 说明 | 结束条件 |
 |---|---|---|
@@ -123,6 +124,9 @@
   白/灰本体）取脚底锚点附近最大的连通块，换算成身体圆；鼠标离开身体时窗口用
   `set_cursor_hittest(false)` 整体穿透。窗口静止时 100ms 轮询，动画时随帧更新，
   残影舞台同样只认身体圆。
+  `Renderer::body_hit()` 返回的 `(dx, dy, radius)` 是**应用逐动画缩放后的画布单位**，
+  相对宠物脚底锚点；计算时会先扣掉画布四周的辉光透明边距（物理像素）再折算，
+  否则圆会整体向左上偏移（Retina 上尤其明显）。窗口层只需再乘用户缩放即可。
 - **逐动画缩放**：`tuning.json` 的 `scale` 是整张画布的缩放（以 `petAnchor` 为锚点），
   窗口尺寸同步按比例变化，放大的动作不会被原始画布裁掉；`offset` 仍按源画布单位、
   随缩放一起换算。
@@ -147,49 +151,62 @@
     和窗口无限增长。托盘提供 ± 微调、“预览一次（走一小段）”、“恢复默认”、
     打开配置文件，以及一个运行时“自动重载配置（调试）”开关
     （每 500 ms 轮询一次文件 mtime）。
-  - 时间参数与窗口大小都用物理像素/秒计算，因此散步（60 pt/s）和跟随鼠标
-    （140 pt/s）的尾巴长度不同，符合运动速度直觉。
+  - 舞台长度 = 逻辑速度 × `dpi` × 停留时间（换算成物理像素），因此散步（60 pt/s）
+    和跟随鼠标（140 pt/s）的尾巴长度不同，符合运动速度直觉。
 - 渲染按动画自身帧率（25fps）节流；只有「正在播动画」或「内容变化」时才重绘。
   Idle 时完全不重绘，CPU 接近 0。
 
 ## 5. 窗口几何（靠 petAnchor 对齐）
 
 每份动画都有自己的画布尺寸与 `petAnchor`（宠物脚底在画布内的坐标）。
-设锚点在屏幕上的位置为 `A`、用户缩放 `s`、屏幕 DPI `d`，则窗口矩形：
+设锚点（脚底）在**逻辑全局屏幕坐标**中的位置为 `A`、用户缩放 `s`，则窗口的
+逻辑矩形为：
 
 ```
-scale = s * d
-w = round(canvas_w * scale)
-h = round(canvas_h * scale)
-x = A.x - pet_anchor.x * scale
-y = A.y - pet_anchor.y * scale
+w = round(canvas_w * s)
+h = round(canvas_h * s)
+x = A.x - pet_anchor.x * s
+y = A.y - pet_anchor.y * s
 ```
 
-这样切换动画时 **宠物在屏幕上完全重合**，不会跳动。
+窗口交给 winit 时用 `LogicalPosition` / `LogicalSize`，所以 AppKit 收到的就是这套
+逻辑点坐标，切换动画时 **宠物在屏幕上完全重合**，不会跳动。只有渲染器和呈现层
+才把逻辑尺寸乘以当前屏幕的 backing scale `d` 得到物理像素：
 
-窗口还会与屏幕可用区域（`NSScreen.visibleFrame`，排除菜单栏与 Dock）求交：
-大动作窗口如果会溢出屏幕，就只开可见的那一块，并按裁剪偏移渲染。否则 macOS 会把
-窗口钳回屏幕内，角色就被整体带偏（形态 2 玩球最容易触发）。
+```
+物理窗口宽高 = round(逻辑宽高 * d)
+```
+
+这样主屏 2x + 外接屏 1x 时，宠物跨屏不会被重复缩放；跨屏后 `state.dpi` 跟着锚点
+所在屏幕更新并重载当前帧。`nono_platform::displays()` 返回每块屏幕的逻辑可用区域
+（`NSScreen.visibleFrame`，排除菜单栏 / Dock）、缩放倍率和稳定 id。
+
+窗口还会与**所有已启用屏幕的可用区域并集**求交：大动作窗口如果会溢出屏幕，就只开
+可见的那一块，并按裁剪偏移渲染。否则 macOS 会把窗口钳回屏幕内，角色就被整体带偏
+（形态 2 玩球最容易触发）。并集而不是单屏，是为了不让正在跨越接缝的宠物被切掉一半。
 
 窗口随动画画布动态缩放：
 
 - 走路窗口约 `99×144 pt`（1.5×，2x 屏），很轻。开着残影时窗口在走路期间临时向
-  四周扩出 `pad = min(速度 × 停留时间 + 2px, 700px)`（默认约 `40 pt` 散步 / `91 pt`
-  跟随）作为透明舞台；透明区域点击穿透，但 `cursor_over_pet()` 会按屏幕光标位置
-  把宠物本体那一块临时恢复为可点击，所以走路时也能点中/拖动。停下后残影继续淡出，
-  窗口保持同样大小直到最后一份快照消失，然后恢复原始尺寸和交互。
+  四周扩出 `pad = min(速度(物理px/s) × 停留时间 + 2px, 700px)`（默认约 `40 pt` 散步 /
+  `91 pt` 跟随）作为透明舞台；透明区域点击穿透，但 `cursor_over_pet()` 会按屏幕光标
+  位置把宠物本体那一块临时恢复为可点击，所以走路时也能点中/拖动。停下后残影继续
+  淡出，窗口保持同样大小直到最后一份快照消失，然后恢复原始尺寸和交互。
 - 大动作会把窗口临时放大（例如形态 2 玩球到 `1315×720 pt`），期间窗口设为
   **点击穿透**，不挡桌面；`auto_end=0` 的动作例外，保持可交互。
 - 个别素材首尾位置不完全一致（形态 2 开机），`tuning.json` 支持 `offset_start`：
   第 0 帧用起始偏移、末帧用结束偏移，中间线性插值。这样关机→开机、开机→待机的
   衔接点都能对上。
-- 拖拽时窗口跟随光标；锚点会被限制在「宠物轮廓安全区」内：以八方向走路
-  `content_bbox` 的并集算出轮廓相对锚点的最大外扩，再把这部分从屏幕可用区域里扣掉。
-  这样即使把鼠标拖到屏幕外，NONO 的轮廓也不会被裁掉（窗口的多余透明边仍会被裁剪，
-  由渲染侧的裁剪偏移补偿）。
+- 拖拽时锚点按「按下时的锚点 + 全局光标位移」计算；拖到屏幕外或未启用的屏幕时，
+  `RoamArea::clamp` 会把它投影到最近的可活动屏幕。`RoamArea` 为每块已启用屏幕保存
+  一个矩形，以八方向走路 `content_bbox` 的并集把轮廓外扩从**外边缘**扣掉；两块屏幕
+  共享的接缝不扣边距，因此宠物可以贴着接缝拖过去（渲染侧仍会裁剪超出并集的窗口边）。
+  自动走动只选择 `RoamArea::segment_inside` 能直线走到的目标，避免跨过屏幕间空隙。
 
-坐标统一用 **物理像素**；winit 的位置/尺寸都是物理像素，而 macOS 的
-`NSWindow.frame` 是点（points），转换在 `nono-platform` 内完成。
+坐标约定：**`PetState::anchor` / `Point` / `Rect` 全部是逻辑全局 points**；
+物理像素只出现在渲染器输出、残影缓冲和 presenter 层。macOS 的 `NSWindow.frame`
+与 `NSScreen.frame` 本身就是 points，`nono-platform` 负责把 AppKit 的
+bottom-left 原点翻转成 top-left，并读取每块屏幕的 backing scale。
 
 ## 6. 平台层
 
@@ -216,12 +233,16 @@ assets/                     # 只读素材 + catalog.json
 ~/Library/Application Support/NonoPet/config.toml
                             # form / scale / sound / volume / wander
                             # / move_speed / follow_speed / idle_speed / trail_* / anchor
+                            # / display_ids / start_at_center / summon_animation
                             # / glow / glow_sigma / glow_alpha
 ~/Library/Caches/NonoPet/tinted/   # generated tinted Lottie cache
 ~/Library/Caches/NonoPet/glow/     # generated glow passes (one per colour/blur group)
 ```
 
-配置在启动时读取，菜单操作与退出时写回；锚点持久化，重启后回到原位置。
+配置在启动时读取，菜单操作与退出时写回。`anchor` 是逻辑全局坐标，在拖拽松手、
+召唤和退出时保存。`start_at_center = true`（默认）时启动是「主显示器中心 + 召唤动画」，
+不使用 `anchor`；设为 `false` 时启动恢复上次位置，如果该点不在当前启用的屏幕上
+则回退到中心。`display_ids` 是允许活动的显示器 id 列表；缺省或为空表示「只允许主显示器」。
 
 ## 8. 行为调度
 
@@ -234,21 +255,45 @@ assets/                     # 只读素材 + catalog.json
 走一段的速度取「待机自由移动速度」：`idle_speed` 有值就用它，否则回退到全局
 `move_speed`。可以从菜单关闭「自由走动」。行为只调用状态机的公开 API，不直接碰窗口。
 
+行为现在接收 `RoamArea`（而不是单个屏幕矩形）：目标先按随机半径生成，再投影到
+可活动区域。若目标与当前位置的直线采样（`segment_inside`）会穿过屏幕之间的空隙，
+就退回当前屏幕内，保证自动走动不会跑到桌面空洞里。
+
 ## 8.1 鼠标跟随（20 秒）
 
 托盘的「跟随鼠标（20 秒）」是一段**运行时模式**，不写入配置：
 
-- 每 150 ms 读一次鼠标位置（macOS 用 `NSEvent.mouseLocation`，换算到与 winit 一致的
-  左上角物理像素），把目标夹到宠物轮廓安全区内。
+- 每 150 ms 读一次鼠标位置（macOS 用 `NSEvent.mouseLocation`，换算到逻辑全局 points），
+  把目标夹到 `RoamArea` 内（鼠标在未启用屏幕时取最近的可活动边缘）。
 - 距离超过 60 逻辑像素就以「跟随速度」走过去（`follow_speed`，未设置时回退到
   全局 `move_speed`；默认 140 pt/s）；进入该范围后停下并转向鼠标方向。
-- 20 秒后自动结束（或再次点菜单 / 拖拽 / 打开动作菜单提前结束），随后把待机决策
+- 20 秒后自动结束（或再次点菜单 / 拖拽 / 召唤提前结束），随后把待机决策
   往后推，避免刚跟完就自己乱走。
-- 跟随期间跳过常规的行为调度，但渲染、窗口移动、边缘夹紧仍走同一套逻辑。
+- 跟随期间跳过常规的行为调度，但渲染、窗口移动、边缘夹紧仍走同一套逻辑；
+  跨屏时锚点所在屏幕的 `dpi` 变化会触发一次保留播放进度地重载。
 
-## 8.2 移动速度
+## 8.2 召唤与启动
 
-`nono_core::speed` 定义范围 10–400 pt/s（逻辑像素/秒，实际位移再乘 DPI）：
+- `App::summon()` 把锚点设为主显示器可用区域中心（主屏未启用时用第一块可启用屏），
+  清空旧残影、显示窗口、必要时切换 `state.dpi`，然后播放当前形态的 `summon` 动作。
+  动作来自 catalog，形态 1–4 都有；播放结束按 `auto_end` 回到 Idle。
+- `summon_at(anchor, dpi)` 是同一个流程的显式位置版本，供启动时恢复上次位置使用；
+  托盘召唤和屏幕消失后的回退仍调用 `summon()`（屏幕中心）。
+- 启动位置由 `config.start_at_center` 决定：
+  - `true`（默认）：主显示器中心。
+  - `false`：读取 `config.anchor`；只有该点落在当前已启用的屏幕上才恢复，否则回退中心。
+  两种模式都在该位置播放召唤动画；`config.summon_animation = false` 时只定位并回到
+  Idle，不播放动画。
+- 托盘「启动时回到屏幕中心」勾选状态与 `start_at_center` 同步；取消勾选时会立即保存
+  当前位置，保证下次启动有位置可恢复。
+- 托盘「移动范围」勾选变化会立即重算 `RoamArea`；如果宠物当前在刚被取消的屏幕上，
+  会调用 `summon()` 把它带回可活动屏幕。热插拔每 5 秒轮询一次（只比较 id 集合），
+  变化时重建托盘并重新解析 `display_ids`。
+
+## 8.3 移动速度
+
+`nono_core::speed` 定义范围 10–400 pt/s。**这些速度现在是逻辑 points/s，
+`PetState` 的位移不再乘 `dpi`**；只有残影舞台长度会按 `speed × dpi` 换算成物理像素：
 
 ```
 move_speed   = 60.0    # 全局速度，始终存在
@@ -260,7 +305,7 @@ idle_speed   = None    # Option：None = 跟随全局
 - `Behavior` 存一份待机速度，配置/热重载改变时会同步；跟随步骤每次读取最新值。
 - 托盘「速度」子菜单显示三个当前值，提供 ±10 pt/s、两个“使用全局速度”开关、
   “恢复默认速度”。默认值保留原手感：全局 60、跟随 140、自由移动跟全局。
-- 托盘里的“打开配置文件…”/“自动重载配置（调试）”同时覆盖残影与速度字段。
+- 托盘里的“打开配置文件…”/“自动重载配置（调试）”同时覆盖残影、速度、召唤动画字段。
 
 ## 9. 扩展点
 

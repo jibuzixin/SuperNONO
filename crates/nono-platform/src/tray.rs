@@ -1,7 +1,7 @@
 //! Tray icon and native menu.
 
 use nono_core::trail;
-use nono_core::{speed, Catalog, Config};
+use nono_core::{speed, Catalog, Config, Display};
 use tray_icon::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
 use tray_icon::{Icon, TrayIcon, TrayIconBuilder};
 
@@ -11,6 +11,11 @@ pub const MENU_SOUND: &str = "sound";
 pub const MENU_WANDER: &str = "wander";
 pub const MENU_IDLE_ANIMATION: &str = "idle_animation";
 pub const MENU_FOLLOW: &str = "follow";
+pub const MENU_SUMMON: &str = "summon";
+pub const MENU_SUMMON_ANIMATION: &str = "summon_animation";
+pub const MENU_START_AT_CENTER: &str = "start_at_center";
+pub const MENU_DISPLAY_PREFIX: &str = "display:";
+pub const MENU_DISPLAY_REFRESH: &str = "display_refresh";
 pub const MENU_TRAIL_ENABLED: &str = "trail_enabled";
 pub const MENU_TRAIL_PREVIEW: &str = "trail_preview";
 pub const MENU_TRAIL_INTERVAL_DOWN: &str = "trail_interval_down";
@@ -70,6 +75,11 @@ pub struct TrayMenu {
     pub idle_animation: CheckMenuItem,
     /// Runtime-only toggle: follows the mouse for 20 seconds.
     pub follow: CheckMenuItem,
+    /// Label follows the form's summon action availability.
+    pub summon: MenuItem,
+    pub summon_animation: CheckMenuItem,
+    pub start_at_center: CheckMenuItem,
+    pub display_items: Vec<(u32, CheckMenuItem)>,
     pub form_items: Vec<(u8, CheckMenuItem)>,
     pub scale_items: Vec<(f32, CheckMenuItem)>,
     pub tint_items: Vec<(Option<[u8; 3]>, CheckMenuItem)>,
@@ -110,19 +120,23 @@ impl TrayMenu {
         self.speed_move_value
             .set_text(format!("全局：{:.0} pt/s", config.move_speed));
         let follow = config.effective_follow_speed();
-        self.speed_follow_value.set_text(if config.follow_speed.is_none() {
-            format!("跟随：跟随全局（{:.0} pt/s）", follow)
-        } else {
-            format!("跟随：{:.0} pt/s", follow)
-        });
-        self.speed_follow_global.set_checked(config.follow_speed.is_none());
+        self.speed_follow_value
+            .set_text(if config.follow_speed.is_none() {
+                format!("跟随：跟随全局（{:.0} pt/s）", follow)
+            } else {
+                format!("跟随：{:.0} pt/s", follow)
+            });
+        self.speed_follow_global
+            .set_checked(config.follow_speed.is_none());
         let idle = config.effective_idle_speed();
-        self.speed_idle_value.set_text(if config.idle_speed.is_none() {
-            format!("自由移动：跟随全局（{:.0} pt/s）", idle)
-        } else {
-            format!("自由移动：{:.0} pt/s", idle)
-        });
-        self.speed_idle_global.set_checked(config.idle_speed.is_none());
+        self.speed_idle_value
+            .set_text(if config.idle_speed.is_none() {
+                format!("自由移动：跟随全局（{:.0} pt/s）", idle)
+            } else {
+                format!("自由移动：{:.0} pt/s", idle)
+            });
+        self.speed_idle_global
+            .set_checked(config.idle_speed.is_none());
         self.trail_enabled.set_checked(config.trail_enabled);
         self.trail_interval_value
             .set_text(format!("间隔：{} 毫秒", config.trail_interval_ms));
@@ -130,6 +144,28 @@ impl TrayMenu {
             .set_text(format!("停留：{} 毫秒", config.trail_lifetime_ms));
         self.trail_opacity_value
             .set_text(format!("浓度：{:.0}%", config.trail_opacity * 100.0));
+        self.summon_animation.set_checked(config.summon_animation);
+        self.start_at_center.set_checked(config.start_at_center);
+    }
+
+    /// Reflects the current allowed-display selection in the tray.
+    pub fn sync_displays(&self, selected: &[u32]) {
+        for (id, item) in &self.display_items {
+            item.set_checked(selected.contains(id));
+        }
+    }
+}
+
+fn display_label(display: &Display) -> String {
+    let role = if display.primary {
+        "主显示器"
+    } else {
+        "显示器"
+    };
+    if display.name.trim().is_empty() {
+        format!("{role}（{}）", display.size_label())
+    } else {
+        format!("{role} · {}（{}）", display.name, display.size_label())
     }
 }
 
@@ -137,12 +173,16 @@ impl TrayMenu {
 pub fn build_tray(
     catalog: &Catalog,
     config: &Config,
+    displays: &[Display],
+    selected_displays: &[u32],
     icon: Icon,
     on_menu: impl Fn(String) + Send + Sync + 'static,
 ) -> Result<TrayMenu, TrayError> {
-    tray_icon::menu::MenuEvent::set_event_handler(Some(move |event: tray_icon::menu::MenuEvent| {
-        on_menu(event.id.0);
-    }));
+    tray_icon::menu::MenuEvent::set_event_handler(Some(
+        move |event: tray_icon::menu::MenuEvent| {
+            on_menu(event.id.0);
+        },
+    ));
 
     let menu = Menu::new();
     let mut keep_items = Vec::new();
@@ -227,6 +267,29 @@ pub fn build_tray(
     }
     menu.append(&scales_root)?;
     keep_submenus.push(scales_root);
+
+    // ── which displays the pet may roam on ───────────────────────────
+    let displays_root = Submenu::new("移动范围", true);
+    let mut display_items = Vec::new();
+    for display in displays {
+        let item = CheckMenuItem::with_id(
+            format!("{MENU_DISPLAY_PREFIX}{}", display.id),
+            display_label(display),
+            true,
+            selected_displays.contains(&display.id),
+            None,
+        );
+        displays_root.append(&item)?;
+        display_items.push((display.id, item));
+    }
+    if !displays.is_empty() {
+        displays_root.append(&PredefinedMenuItem::separator())?;
+    }
+    let display_refresh = MenuItem::with_id(MENU_DISPLAY_REFRESH, "刷新显示器列表", true, None);
+    displays_root.append(&display_refresh)?;
+    keep_items.push(display_refresh);
+    menu.append(&displays_root)?;
+    keep_submenus.push(displays_root);
 
     let speed_root = Submenu::new("速度", true);
     let speed_move_value =
@@ -325,14 +388,16 @@ pub fn build_tray(
     let trail_root = Submenu::new("残影", true);
     let trail_enabled =
         CheckMenuItem::with_id(MENU_TRAIL_ENABLED, "开启", true, config.trail_enabled, None);
-    let trail_preview =
-        MenuItem::with_id(MENU_TRAIL_PREVIEW, "预览一次（走一小段）", true, None);
+    let trail_preview = MenuItem::with_id(MENU_TRAIL_PREVIEW, "预览一次（走一小段）", true, None);
     trail_root.append(&trail_enabled)?;
     trail_root.append(&trail_preview)?;
     trail_root.append(&PredefinedMenuItem::separator())?;
 
-    let trail_interval_value =
-        MenuItem::new(format!("间隔：{} 毫秒", config.trail_interval_ms), false, None);
+    let trail_interval_value = MenuItem::new(
+        format!("间隔：{} 毫秒", config.trail_interval_ms),
+        false,
+        None,
+    );
     let interval_down = MenuItem::with_id(
         MENU_TRAIL_INTERVAL_DOWN,
         format!("−{} 毫秒（更密）", trail::INTERVAL_STEP_MS),
@@ -350,8 +415,11 @@ pub fn build_tray(
     trail_root.append(&interval_up)?;
     trail_root.append(&PredefinedMenuItem::separator())?;
 
-    let trail_lifetime_value =
-        MenuItem::new(format!("停留：{} 毫秒", config.trail_lifetime_ms), false, None);
+    let trail_lifetime_value = MenuItem::new(
+        format!("停留：{} 毫秒", config.trail_lifetime_ms),
+        false,
+        None,
+    );
     let lifetime_down = MenuItem::with_id(
         MENU_TRAIL_LIFETIME_DOWN,
         format!("−{} 毫秒（更短）", trail::LIFETIME_STEP_MS),
@@ -369,8 +437,11 @@ pub fn build_tray(
     trail_root.append(&lifetime_up)?;
     trail_root.append(&PredefinedMenuItem::separator())?;
 
-    let trail_opacity_value =
-        MenuItem::new(format!("浓度：{:.0}%", config.trail_opacity * 100.0), false, None);
+    let trail_opacity_value = MenuItem::new(
+        format!("浓度：{:.0}%", config.trail_opacity * 100.0),
+        false,
+        None,
+    );
     let opacity_down = MenuItem::with_id(
         MENU_TRAIL_OPACITY_DOWN,
         format!("−{:.0}%（更淡）", trail::OPACITY_STEP * 100.0),
@@ -389,15 +460,9 @@ pub fn build_tray(
     trail_root.append(&PredefinedMenuItem::separator())?;
 
     let trail_reset = MenuItem::with_id(MENU_TRAIL_RESET, "恢复默认", true, None);
-    let trail_watch = CheckMenuItem::with_id(
-        MENU_TRAIL_WATCH,
-        "自动重载配置（调试）",
-        true,
-        false,
-        None,
-    );
-    let trail_reload =
-        MenuItem::with_id(MENU_TRAIL_RELOAD, "重新载入残影/速度设置", true, None);
+    let trail_watch =
+        CheckMenuItem::with_id(MENU_TRAIL_WATCH, "自动重载配置（调试）", true, false, None);
+    let trail_reload = MenuItem::with_id(MENU_TRAIL_RELOAD, "重新载入残影/速度设置", true, None);
     let trail_open_config = MenuItem::with_id(MENU_TRAIL_OPEN_CONFIG, "打开配置文件…", true, None);
     trail_root.append(&trail_reset)?;
     trail_root.append(&trail_watch)?;
@@ -428,10 +493,33 @@ pub fn build_tray(
         None,
     );
     let follow = CheckMenuItem::with_id(MENU_FOLLOW, "跟随鼠标（20 秒）", true, false, None);
+    let summon_root = Submenu::new("召唤", true);
+    let summon = MenuItem::with_id(MENU_SUMMON, "召唤到屏幕中心", true, None);
+    let summon_animation = CheckMenuItem::with_id(
+        MENU_SUMMON_ANIMATION,
+        "播放召唤动画",
+        true,
+        config.summon_animation,
+        None,
+    );
+    summon_root.append(&summon)?;
+    summon_root.append(&summon_animation)?;
+    summon_root.append(&PredefinedMenuItem::separator())?;
+    let start_at_center = CheckMenuItem::with_id(
+        MENU_START_AT_CENTER,
+        "启动时回到屏幕中心（关闭=记住上次）",
+        true,
+        config.start_at_center,
+        None,
+    );
+    summon_root.append(&start_at_center)?;
+    keep_items.push(summon.clone());
     menu.append(&sound)?;
     menu.append(&wander)?;
     menu.append(&idle_animation)?;
     menu.append(&follow)?;
+    menu.append(&summon_root)?;
+    keep_submenus.push(summon_root);
     menu.append(&PredefinedMenuItem::separator())?;
 
     // ── window ───────────────────────────────────────────────────────
@@ -457,6 +545,10 @@ pub fn build_tray(
         wander,
         idle_animation,
         follow,
+        summon,
+        summon_animation,
+        start_at_center,
+        display_items,
         form_items,
         scale_items,
         tint_items,

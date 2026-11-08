@@ -7,13 +7,20 @@
 //! * [`catalog`] — the runtime view of `assets/catalog.json`.
 //! * [`state`] — the character state machine and playback clock.
 //! * [`behavior`] — idle/wander scheduling ("personality").
+//! * [`display`] — connected displays and the allowed roaming region.
 //! * [`config`] — persisted user settings.
 //! * [`trail`] — walking afterimage timing (interval, lifetime, opacity).
 //! * [`speed`] — movement speed (global + follow/idle overrides).
+//!
+//! Screen positions ([`Point`]) are **logical global points**, top-left origin
+//! on the primary display.  `PetState::dpi` converts them to physical pixels
+//! only when rendering/windowing, which keeps mixed-DPI multi-monitor setups
+//! continuous.
 
 pub mod behavior;
 pub mod catalog;
 pub mod config;
+pub mod display;
 pub mod event;
 pub mod geometry;
 pub mod speed;
@@ -23,6 +30,7 @@ pub mod trail;
 pub use behavior::Behavior;
 pub use catalog::{AnimationKind, AnimationSpec, AudioSpec, Catalog};
 pub use config::Config;
+pub use display::{Display, RoamArea};
 pub use event::{Bus, Event};
 pub use geometry::{pet_window_rect, Direction, Point, Rect};
 pub use state::{Mode, PetState, Tick};

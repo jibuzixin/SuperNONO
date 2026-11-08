@@ -16,7 +16,17 @@
 - 形态 1–4 的全部素材：八方向走路、动作（形态 3/4 没有「充电」）、表情、动作音效。
 - 按 `petAnchor` 对齐，切换动画时宠物在屏幕上不跳位。
 - 拖拽移动；单击做表情；右键做随机动作；托盘菜单切换动作 / 表情 / 形态 / 大小 /
-  速度 / 音效 / 自由走动 / 隐藏 / 退出。
+  移动范围 / 速度 / 音效 / 自由走动 / 隐藏 / 退出。
+- 多显示器：默认只在主显示器活动。托盘「移动范围」可勾选 NONO 可以自由移动的屏幕
+  （至少保留一块），拖拽、跟随鼠标和自动走动都能跨屏；相邻屏幕的接缝不设轮廓边距，
+  所以可以贴边走过去。显示器热插拔会自动重新扫描，也可以手动「刷新显示器列表」。
+  屏幕坐标统一按逻辑全局点处理，主屏 Retina + 外接 1x 屏这种混合 DPI 组合也不会错位。
+- 「召唤」：托盘「召唤 → 召唤到屏幕中心」会把 NONO 叫回主显示器中心（主显示器被取消
+  勾选时用第一块可活动屏幕），并播放当前形态的专属召唤动画；隐藏状态下会同时显示。
+- 启动位置可选：托盘「召唤 → 启动时回到屏幕中心（关闭=记住上次）」或配置
+  `start_at_center`，默认在主显示器中心出现；关闭后恢复到上次保存的位置（该位置不在
+  已启用屏幕上时仍回退到中心）。启动时同样播放召唤动画。召唤动画可在
+  托盘「召唤 → 播放召唤动画」关闭（默认开启），关闭后只定位、不播放动画。
 - 屏幕边缘硬限制：按宠物轮廓计算安全区，拖到屏幕边也拖不出去，轮廓不会被裁。
 - 「跟随鼠标（20 秒）」：托盘点一下，NONO 会朝鼠标方向走过去，20 秒后自动停下。
 - 调色盘：托盘「颜色」可把白色外壳换成樱花粉/柠檬黄/薄荷绿/天空蓝/葡萄紫/蜜橙/珊瑚红，
@@ -51,9 +61,11 @@
   透明区域全部点击穿透；动作播放期间窗口整体穿透，不挡桌面。
 - 素材包从 1.0.0 起做版本管理：版本/变更见 `assets/asset-version.json`、`assets/CHANGELOG.md`，
   更新流程见 `docs/ASSET_VERSIONING.md`；`nono --check` 会打印素材版本。
-- 配置持久化：形态、缩放、音量、漫游开关、移动速度、残影开关/间隔/停留/浓度、屏幕位置。
+- 配置持久化：形态、缩放、音量、漫游开关、可活动显示器、召唤动画开关、移动速度、
+  残影开关/间隔/停留/浓度。
 - 全 JSON 事件总线，`--trace` 可看到所有事件。
-- 送一个 `--render-frame` / `--render-icon` 小工具，方便导出素材帧和图标。
+- 送一个 `--render-frame` / `--render-icon` / `--list-displays` 小工具，方便导出素材帧、
+  图标和排查多屏坐标。
 
 ## 快速开始
 
@@ -79,7 +91,9 @@ export RUSTUP_UPDATE_ROOT=https://rsproxy.cn/rustup
 ```bash
 cargo run --release -p nono-app -- --check        # 校验素材与 catalog
 cargo run --release -p nono-app -- --list         # 列出动作/表情
+cargo run --release -p nono-app -- --list-displays # 列出显示器（逻辑坐标 / 缩放 / 主屏）
 cargo run --release -p nono-app -- --trace        # 打印事件与调试日志
+cargo run --release -p nono-app -- --play summon  # 启动后执行一次召唤（等同托盘召唤）
 cargo run --release -p nono-app -- --play action:1:cube   # 启动即播放某个动画
 cargo run --release -p nono-app -- --render-frame 1 action cube 100 3 /tmp/cube.png
 cargo run --release -p nono-app -- --render-icon assets/icon/nono-tray.png 64
@@ -87,18 +101,52 @@ cargo run --release -p nono-app -- --render-icon assets/icon/nono-tray.png 64
 
 `NONO_ASSETS` 可覆盖素材目录，`NONO_CONFIG` 可覆盖配置文件路径，`NONO_CACHE` 可覆盖染色缓存目录（便携/测试用）。
 
+## 打包 macOS 安装包
+
+```bash
+tools/package_macos.sh                # 构建 + 打包 .app / .dmg
+tools/package_macos.sh --skip-build   # 复用 target/release/nono
+```
+
+产物在 `dist/`：`超能NONO.app` 与 `超能NONO-<版本>-m1.dmg`（Apple Silicon、macOS 11+）。
+DMG 里有 Applications 快捷方式、安装说明和卷图标。应用图标由 `tools/make_app_icon.py`
+从当前素材渲染（需要 Pillow），`tools/macos/` 放 Info.plist、图标源和安装说明。
+
+脚本只做 ad-hoc 签名，没有 Apple Developer ID 公证，别人首次打开需要在
+「系统设置 → 隐私与安全性」里允许；或执行
+`xattr -dr com.apple.quarantine /Applications/超能NONO.app`。要公开发布，需用开发者
+证书签名并 `notarytool` 公证。
+
 ## 交互一览
 
 | 操作 | 行为 |
 |---|---|
 | 左键单击 | 随机表情（60% 概率优先「开心」） |
-| 左键拖拽 | 移动 NONO，松手后记住位置 |
+| 左键拖拽 | 移动 NONO，松手后记住位置；可拖到已勾选的任意显示屏 |
 | 右键单击 | 随机动作 |
-| 托盘菜单 | 动作 / 表情 / 形态 / 颜色 / 大小 / 速度（全局·跟随·自由移动） / 残影（开关·间隔·停留·浓度·配置热重载） / 音效 / 自由走动 / 静止时播放走路 / 跟随鼠标（20 秒） / 隐藏 / 退出 |
+| 托盘菜单 | 动作 / 表情 / 形态 / 颜色 / 大小 / 移动范围（勾选可活动的显示器）/ 速度（全局·跟随·自由移动） / 残影（开关·间隔·停留·浓度·配置热重载） / 音效 / 自由走动 / 静止时播放走路 / 跟随鼠标（20 秒） / 召唤（到屏幕中心·播放召唤动画·启动位置） / 隐藏 / 退出 |
 
-配置与窗口位置保存在 `~/Library/Application Support/NonoPet/config.toml`。
+配置保存在 `~/Library/Application Support/NonoPet/config.toml`。
 
-### 调参（残影 / 速度）
+### 多显示器与召唤
+
+- 默认只勾选**主显示器**，此时行为和旧版一致。
+- 托盘「移动范围」可同时勾选多块屏幕；至少保留一块，取消最后一块会被拒绝。
+  勾选后拖拽、跟随鼠标、自动走动都能跨屏。相邻屏幕之间不额外留轮廓边距，
+  所以 NONO 可以贴着接缝走过去；不相邻的屏幕之间不会被直线穿过去。
+- 显示器热插拔每 5 秒检查一次，也可以点「刷新显示器列表」立即重新扫描。
+  如果 NONO 所在的屏幕被拔掉或取消勾选，它会自动被召唤到可活动屏幕中心。
+- 托盘「召唤 → 召唤到屏幕中心」默认回到**主显示器中心**并播放当前形态的召唤动画。
+  主显示器被取消勾选时，使用第一块可活动的屏幕。
+- 启动位置由「召唤 → 启动时回到屏幕中心（关闭=记住上次）」控制：默认在主显示器
+  中心出现；关闭后回到上次位置（鼠标拖拽/召唤/退出时保存），如果该位置不在当前
+  已启用的屏幕上则仍从中心开始。两种模式都会播放召唤动画（形态 1–4 都有专属动作），
+  也可以在「召唤 → 播放召唤动画」关闭动画，关闭后只定位、不播放。
+- 屏幕坐标使用逻辑全局点（AppKit 的 points），混合 DPI（例如 Retina 主屏 + 1x 外接屏）
+  也能连续移动，不会在接缝处跳位或把窗口缩放到错误大小。
+  `nono --list-displays` 可打印每块屏幕的逻辑坐标、可用区域和缩放倍率，便于排查。
+
+### 调参（残影 / 速度 / 启动位置）
 
 托盘「残影」→「打开配置文件…」会在默认编辑器里打开 `config.toml`，并自动开启
 「自动重载配置（调试）」。直接改下面这些行、保存即可实时生效：
@@ -113,6 +161,10 @@ move_speed = 60.0
 follow_speed = 140.0
 idle_speed = 80.0
 form1_walk_anim_speed = 1.0
+
+display_ids = [2]          # 可活动的显示器（`nono --list-displays` 里的 id）
+start_at_center = true     # 启动位置：true=主屏中心，false=记住上次位置
+summon_animation = true    # 召唤/启动时是否播放召唤动画
 ```
 
 - `trail_interval_ms`：20–400，越小残影越密
@@ -123,6 +175,15 @@ form1_walk_anim_speed = 1.0
 - `idle_speed`：待机自由移动速度；删掉这一行就跟随全局
 - `form1_walk_anim_speed`：0.25–4.0，形态 1 八个方向走路/待机动画的**播放速度倍率**
   （1.0 = 原始 25fps；只影响动画循环，不影响移动速度，配置热重载即时生效）
+- `display_ids`：可活动显示器的平台 id 列表；删掉这一行（或留空）等于只允许主显示器。
+  启动时会过滤已断开的 id；如果一块都不剩，自动回退到主显示器。托盘勾选后会立即写回。
+- `start_at_center`：`true`（默认）启动时回到主显示器中心；`false` 恢复 `anchor`
+  记录的上次位置（拖拽松手、召唤、退出时保存）。上次位置不在已启用屏幕上时自动
+  回退到中心。托盘「召唤 → 启动时回到屏幕中心」勾选状态与之同步。
+- `summon_animation`：`true`（默认）时召唤和启动播放当前形态的召唤动作；`false` 只定位。
+
+> `anchor` 使用逻辑全局坐标，只在 `start_at_center = false` 时用于启动定位。
+> 关闭「启动时回到屏幕中心」会立即把当前位置写入 `anchor`，保证下次启动有位置可恢复。
 
 默认值是 `move_speed = 60`、`follow_speed = 140`、`idle_speed` 不设置（跟全局）。
 旧版配置第一次加载会自动补上 140 的跟随速度，保持原来的手感；一旦配置里出现
@@ -140,13 +201,14 @@ form1_walk_anim_speed = 1.0
 
 ```
 assets/                  原始 Lottie 素材 + catalog.json + 托盘图标
-crates/nono-core/        事件总线、状态机、行为调度、素材目录、配置、速度/残影参数
+crates/nono-core/        事件总线、状态机、行为调度、素材目录、配置、速度/残影参数、显示器/漫游区域
 crates/nono-render/      ThorVG 软件光栅 + Lottie 播放（共享 picture、内存回收）
 crates/nono-platform/    透明呈现（macOS CALayer）、托盘、NSSound、窗口
 crates/nono-app/         主程序与 CLI
 crates/nono-plugin/      插件契约（manifest / 权限 / 宿主 trait，M3 落地）
 crates/nono-agent/       Agent 协议 + Adapter trait + Mock（M2 落地）
 tools/build_catalog.py   把各目录 manifest 归一化成 catalog.json
+tools/package_macos.sh   打包 .app / .dmg；tools/macos/ 放 Info.plist、图标与安装说明
 docs/                    架构、素材契约、插件规范、Agent 协议
 ```
 
@@ -158,7 +220,7 @@ docs/                    架构、素材契约、插件规范、Agent 协议
 |---|---|
 | 待机内存（footprint） | ~24 MB |
 | 待机 CPU（静止播放走路） | 约 4%（1.5 ms/帧 × 25fps），托盘可关 |
-| 关闭「静止时播放走路」后 | 不重绘、无定时器，≈0 |
+| 关闭「静止时播放走路」后 | 不重绘；仅每 5 秒轻量检查一次显示器热插拔，≈0 |
 | 最大动作（形态 2 玩球，2631×1440 物理像素） | ~68 MB，帧耗时 ~18 ms（25 fps） |
 | 大动作结束回到待机 | ~25 MB（主动归还分配器页） |
 | 走路窗口 | 99×144 pt，帧耗时 ~1.5–1.8 ms |
@@ -206,8 +268,8 @@ python3 tools/build_catalog.py --check
   带跑。
 - 残影调到很长/很浓时，走路窗口、内存和帧耗时都会相应变大（最长档跟随速度下
   舞台约 549×594 pt）；觉得卡就调短停留时间或调大间隔。
-- 超大动作窗口会裁剪到主屏可用区域（菜单栏/Dock 之外），保证角色不被窗口钳位带偏；
-  多显示器时暂按主屏计算。
+- 超大动作窗口会裁剪到所有已启用屏幕可用区域的并集（菜单栏/Dock 之外），保证角色
+  不被窗口钳位带偏；跨越不同 DPI 的屏幕时会在锚点所在屏幕重新加载当前帧。
 - 素材目前全是 Lottie；用户上传 / 视频转精灵帧的流水线尚未开工。
 - 图标由 `nono --render-icon` 生成，尚未打包成 `.app` 与 `.icns`。
 

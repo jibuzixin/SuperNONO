@@ -33,6 +33,10 @@ pub enum Event {
     ChangeState { state: String },
     ChangeForm { form: u8 },
     SetScale { scale: f32 },
+    /// Enabled displays changed (platform display ids).
+    SetDisplays { display_ids: Vec<u32> },
+    /// The pet was summoned to the primary display's centre.
+    Summoned,
     SetTrail { enabled: bool, interval_ms: u32, lifetime_ms: u32, opacity: f32 },
     SetSpeed {
         global: f32,

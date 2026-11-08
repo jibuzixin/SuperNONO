@@ -11,7 +11,8 @@ use rand::{Rng, SeedableRng};
 
 use crate::catalog::Catalog;
 use crate::config::Config;
-use crate::geometry::{Direction, Point, Rect};
+use crate::display::RoamArea;
+use crate::geometry::{Direction, Point};
 use crate::state::{Mode, PetState};
 
 #[derive(Debug)]
@@ -91,7 +92,7 @@ impl Behavior {
         &mut self,
         state: &mut PetState,
         catalog: &Catalog,
-        bounds: Rect,
+        area: &RoamArea,
         now: Instant,
     ) -> bool {
         if !self.enabled {
@@ -111,8 +112,8 @@ impl Behavior {
         let roll: f32 = self.rng.gen_range(0.0..1.0);
 
         if roll < 0.55 {
-            if let Some(target) = self.pick_walk_target(state, bounds) {
-                state.start_walk(catalog, target, self.wander_speed * state.dpi, now);
+            if let Some(target) = self.pick_walk_target(state, area) {
+                state.start_walk(catalog, target, self.wander_speed, now);
                 return true;
             }
         }
@@ -137,16 +138,30 @@ impl Behavior {
         false
     }
 
-    fn pick_walk_target(&mut self, state: &PetState, bounds: Rect) -> Option<Point> {
-        let max_radius = 180.0 * state.dpi;
-        let min_radius = 50.0 * state.dpi;
+    /// Picks a short walk that stays on enabled displays.
+    ///
+    /// The random point is projected onto the enabled area first, so a pet
+    /// standing near a shared seam can wander onto the neighbouring screen.
+    /// When the projection would cut across a gap between screens, the walk
+    /// falls back to the display the pet is currently on.
+    fn pick_walk_target(&mut self, state: &PetState, area: &RoamArea) -> Option<Point> {
+        let current = area
+            .rect_at(state.anchor)
+            .or_else(|| area.nearest_rect(state.anchor))?;
+        let max_radius = 180.0;
+        let min_radius = 50.0;
         let angle: f32 = self.rng.gen_range(0.0..std::f32::consts::TAU);
         let distance = self.rng.gen_range(min_radius..=max_radius);
-        let target = Point::new(
+        let candidate = Point::new(
             state.anchor.x + angle.cos() * distance,
             state.anchor.y + angle.sin() * distance,
-        )
-        .clamp(bounds.inset(24.0));
+        );
+        let target = area.clamp(candidate);
+        let target = if area.segment_inside(state.anchor, target) {
+            target
+        } else {
+            candidate.clamp(current.inset(24.0))
+        };
         if target.distance(state.anchor) < 24.0 {
             return None;
         }
@@ -157,6 +172,7 @@ impl Behavior {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::geometry::Rect;
     use std::path::Path;
 
     #[test]
@@ -190,10 +206,10 @@ mod tests {
         let start = Instant::now();
         let mut state = PetState::new(&catalog, 1, Point::new(800.0, 600.0), 1.5, 2.0, start);
         let mut behavior = Behavior::with_seed(start, &config, 7);
-        let bounds = Rect::new(0.0, 0.0, 1600.0, 1200.0);
+        let area = RoamArea::single(Rect::new(0.0, 0.0, 1600.0, 1200.0));
         for i in 0..10 {
             let now = start + Duration::from_secs(60 * i);
-            assert!(!behavior.update(&mut state, &catalog, bounds, now));
+            assert!(!behavior.update(&mut state, &catalog, &area, now));
         }
         assert_eq!(state.mode, Mode::Idle);
     }
@@ -209,9 +225,43 @@ mod tests {
         let start = Instant::now();
         let mut state = PetState::new(&catalog, 1, Point::new(800.0, 600.0), 1.5, 2.0, start);
         let mut behavior = Behavior::with_seed(start, &config, 42);
-        let bounds = Rect::new(0.0, 0.0, 1600.0, 1200.0);
-        let woke = behavior.update(&mut state, &catalog, bounds, start + Duration::from_secs(30));
+        let area = RoamArea::single(Rect::new(0.0, 0.0, 1600.0, 1200.0));
+        let woke = behavior.update(&mut state, &catalog, &area, start + Duration::from_secs(30));
         assert!(woke);
         assert_ne!(state.mode, Mode::Idle);
+    }
+
+    #[test]
+    fn wander_targets_stay_on_the_current_display() {
+        let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../assets");
+        if !root.join("catalog.json").is_file() {
+            return;
+        }
+        let catalog = Catalog::load(root).unwrap();
+        let config = Config::default();
+        let start = Instant::now();
+        let mut state = PetState::new(&catalog, 1, Point::new(300.0, 300.0), 1.5, 2.0, start);
+        let mut behavior = Behavior::with_seed(start, &config, 99);
+        let left = Rect::new(0.0, 0.0, 400.0, 400.0);
+        let right = Rect::new(800.0, 0.0, 400.0, 400.0);
+        let area = RoamArea::new([left, right]);
+        // Force many decisions; every walk target must stay inside `left`
+        // because that is the display holding the current anchor.
+        for i in 0..40 {
+            state.idle(&catalog, start);
+            let now = start + Duration::from_secs(30 * i);
+            behavior.update(&mut state, &catalog, &area, now);
+            if state.mode == Mode::Walk {
+                // The target is private; advance until the pet stops and
+                // verify it never entered the gap/unselected display.
+                for _ in 0..100 {
+                    state.tick(&catalog, now + Duration::from_millis(100));
+                    assert!(
+                        area.rect_at(state.anchor).is_some(),
+                        "left the enabled area"
+                    );
+                }
+            }
+        }
     }
 }

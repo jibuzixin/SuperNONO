@@ -51,9 +51,23 @@ pub struct Config {
     /// Peak opacity of an afterimage (controls how strong the trail is).
     #[serde(serialize_with = "serialize_opacity")]
     pub trail_opacity: f32,
-    /// Screen-space (physical px) position of the pet's feet.  `None` means
-    /// "pick a spot on the primary monitor at startup".
+    /// Screen-space (logical global points) position of the pet's feet.
+    ///
+    /// Written on drag/summon/quit and used at startup when
+    /// [`Config::start_at_center`] is `false`.
     pub anchor: Option<Point>,
+    /// Displays the pet may roam on (`CGDirectDisplayID` values on macOS).
+    /// `None`/empty means "primary display only", which is also the default for
+    /// configs written by older versions.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub display_ids: Option<Vec<u32>>,
+    /// Start at the primary display's centre (the default).  When `false` the
+    /// last saved [`Config::anchor`] is restored instead.
+    #[serde(default = "default_true")]
+    pub start_at_center: bool,
+    /// Play the form's summon action when the pet is summoned / started.
+    #[serde(default = "default_true")]
+    pub summon_animation: bool,
     /// Recolour the white body parts, without touching the assets.  `None`
     /// keeps the original white.
     pub tint: Option<[u8; 3]>,
@@ -67,6 +81,10 @@ pub struct Config {
 
 fn default_walk_anim_speed() -> f32 {
     1.0
+}
+
+fn default_true() -> bool {
+    true
 }
 
 impl Default for Config {
@@ -89,6 +107,9 @@ impl Default for Config {
             trail_lifetime_ms: trail::DEFAULT_LIFETIME_MS,
             trail_opacity: trail::DEFAULT_OPACITY,
             anchor: None,
+            display_ids: None,
+            start_at_center: true,
+            summon_animation: true,
             tint: None,
             glow: true,
             glow_sigma: 0.6,
@@ -166,6 +187,13 @@ impl Config {
         self.trail_opacity = (trail::sanitize_opacity(self.trail_opacity) * 100.0).round() / 100.0;
         self.glow_sigma = self.glow_sigma.clamp(0.1, 2.0);
         self.glow_alpha = self.glow_alpha.clamp(0.0, 2.0);
+        if let Some(ids) = &mut self.display_ids {
+            ids.sort_unstable();
+            ids.dedup();
+            if ids.is_empty() {
+                self.display_ids = None;
+            }
+        }
     }
 
     /// Follow speed in pt/s, falling back to the global speed.
@@ -223,8 +251,7 @@ pub fn cache_dir() -> PathBuf {
             .map(PathBuf::from)
             .or_else(|| home_dir().map(|home| home.join(".cache")))
     };
-    base.unwrap_or_else(|| PathBuf::from("."))
-        .join("NonoPet")
+    base.unwrap_or_else(|| PathBuf::from(".")).join("NonoPet")
 }
 
 /// Where the pet looks for `catalog.json`.
@@ -277,10 +304,18 @@ mod tests {
         config.move_speed = 90.0;
         config.follow_speed = None;
         config.idle_speed = Some(120.0);
+        config.display_ids = Some(vec![3, 1, 3]);
+        config.start_at_center = false;
+        config.summon_animation = false;
         let text = toml::to_string_pretty(&config).unwrap();
         assert!(text.contains("trail_opacity = 0.35"), "{text}");
         assert!(text.contains("idle_speed = 120.0"), "{text}");
-        assert!(!text.contains("follow_speed"), "None override must be omitted: {text}");
+        assert!(
+            !text.contains("follow_speed"),
+            "None override must be omitted: {text}"
+        );
+        assert!(text.contains("start_at_center = false"), "{text}");
+        assert!(text.contains("summon_animation = false"), "{text}");
         let back = Config::from_toml(&text).unwrap();
         assert_eq!(back.form, 2);
         assert_eq!(back.scale, config.scale);
@@ -292,6 +327,13 @@ mod tests {
         assert!((back.move_speed - 90.0).abs() < 1e-6);
         assert_eq!(back.follow_speed, None);
         assert_eq!(back.idle_speed, Some(120.0));
+        assert_eq!(
+            back.display_ids,
+            Some(vec![1, 3]),
+            "ids are deduplicated/sorted"
+        );
+        assert!(!back.summon_animation);
+        assert!(!back.start_at_center);
         assert!((back.effective_follow_speed() - 90.0).abs() < 1e-6);
         assert!((back.effective_idle_speed() - 120.0).abs() < 1e-6);
     }
@@ -337,6 +379,11 @@ mod tests {
         assert_eq!(back.trail_interval_ms, trail::DEFAULT_INTERVAL_MS);
         assert_eq!(back.trail_lifetime_ms, trail::DEFAULT_LIFETIME_MS);
         assert!((back.trail_opacity - trail::DEFAULT_OPACITY).abs() < 1e-6);
+        // Multi-display and summon settings are new: old files mean "primary
+        // display only" and "play the summon animation".
+        assert_eq!(back.display_ids, None);
+        assert!(back.start_at_center);
+        assert!(back.summon_animation);
     }
 
     #[test]
@@ -353,10 +400,18 @@ mod tests {
 
     #[test]
     fn sanitize_clamps_out_of_range_values() {
-        let mut config = Config { scale: 99.0, volume: -1.0, form: 9, ..Config::default() };
+        let mut config = Config {
+            scale: 99.0,
+            volume: -1.0,
+            form: 9,
+            ..Config::default()
+        };
         config.sanitize();
         assert_eq!(config.form, 1);
-        let mut walk = Config { form1_walk_anim_speed: 99.0, ..Config::default() };
+        let mut walk = Config {
+            form1_walk_anim_speed: 99.0,
+            ..Config::default()
+        };
         walk.sanitize();
         assert_eq!(walk.form1_walk_anim_speed, 4.0);
         assert_eq!(config.scale, 3.0);
