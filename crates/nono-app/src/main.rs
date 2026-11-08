@@ -38,6 +38,12 @@ const TRAIL_FADE_FRAME: Duration = Duration::from_millis(40);
 const CONFIG_POLL: Duration = Duration::from_millis(500);
 /// How often display hot-plug is polled (cheap; only reacts to id changes).
 const DISPLAY_POLL: Duration = Duration::from_secs(5);
+/// Glow margin used by the fixed walking stage, in canvas units.
+///
+/// This must be independent of the current walk direction.  Form 2 directions
+/// carry 11 or 15 units of glow padding; using a constant covers both without
+/// resizing the window when the pet turns.
+const WALK_GLOW_MARGIN_UNITS: f32 = 24.0;
 
 #[derive(Debug, Clone)]
 enum UserEvent {
@@ -924,24 +930,45 @@ impl App {
         let (full_w, full_h) = self.renderer.size();
         let dpi_f = self.state.dpi.max(0.01);
         let tight = self.state.window_rect();
-        // For a plain (non-trail) present the source is the tight frame itself;
-        // using the window stage here can be one pixel larger after rounding and
-        // would make `crop_into` read past the frame.
-        let desired = if trail_on {
-            self.stage_rect_px()
-        } else {
-            Rect::new(
-                tight.x * dpi_f,
-                tight.y * dpi_f,
-                full_w.max(1) as f32,
-                full_h.max(1) as f32,
-            )
-        };
-        let stage_w = desired.w.round().max(1.0) as u32;
-        let stage_h = desired.h.round().max(1.0) as u32;
-        // Clip to the usable area of the display the pet is on.  Both rects are
-        // physical here; the window itself is positioned in logical points.
-        let visible = desired.intersect(self.active_display_bounds_px());
+        // The stage is integer-aligned in logical points.  The pet and every
+        // ghost are then placed relative to the same physical origin, so the
+        // window cannot land on a different pixel grid than the contents.
+        let trail_stage = trail_on.then(|| self.stage_rect());
+        let (desired, stage_w, stage_h, visible, current_left, current_top) =
+            if let Some(stage) = trail_stage {
+                let desired = Rect::new(
+                    stage.x * dpi_f,
+                    stage.y * dpi_f,
+                    (stage.w * dpi_f).round().max(1.0),
+                    (stage.h * dpi_f).round().max(1.0),
+                );
+                let visible_logical = stage.intersect(self.active_display_bounds());
+                let visible = Rect::new(
+                    visible_logical.x * dpi_f,
+                    visible_logical.y * dpi_f,
+                    (visible_logical.w * dpi_f).round().max(1.0),
+                    (visible_logical.h * dpi_f).round().max(1.0),
+                );
+                let left = ((tight.x - stage.x) * dpi_f).round() as i32;
+                let top = ((tight.y - stage.y) * dpi_f).round() as i32;
+                (
+                    desired,
+                    desired.w as u32,
+                    desired.h as u32,
+                    visible,
+                    left,
+                    top,
+                )
+            } else {
+                let desired = Rect::new(
+                    tight.x * dpi_f,
+                    tight.y * dpi_f,
+                    full_w.max(1) as f32,
+                    full_h.max(1) as f32,
+                );
+                let visible = desired.intersect(self.active_display_bounds_px());
+                (desired, desired.w as u32, desired.h as u32, visible, 0, 0)
+            };
         let ox = ((visible.x - desired.x).round().max(0.0) as u32).min(stage_w.saturating_sub(1));
         let oy = ((visible.y - desired.y).round().max(0.0) as u32).min(stage_h.saturating_sub(1));
         let crop_w = (visible.w.round() as u32).min(stage_w - ox).max(1);
@@ -950,16 +977,6 @@ impl App {
         let anchor = self.state.anchor;
         let lifetime_secs = self.config.trail_lifetime_ms as f32 / 1000.0;
         let opacity = self.config.trail_opacity;
-        let current_left = if trail_on {
-            ((tight.x * dpi_f) - desired.x).round() as i32
-        } else {
-            0
-        };
-        let current_top = if trail_on {
-            ((tight.y * dpi_f) - desired.y).round() as i32
-        } else {
-            0
-        };
         {
             // Split borrows: the renderer/history are read, the stage and crop
             // buffers are written, and only then is the presenter called.
@@ -1123,91 +1140,103 @@ impl App {
         }
     }
 
-    /// Current frame + trail pad (no afterimages), physical global pixels.
-    fn current_stage_base_px(&self) -> Rect {
+    /// Current frame + trail margin in logical points (no afterimages).
+    fn current_stage_base(&self) -> Rect {
         let dpi = self.state.dpi.max(0.01);
-        let tight = self.state.window_rect();
-        let (full_w, full_h) = self.renderer.size();
-        let pad = self.trail_pad_px() as f32;
-        if full_w == 0 || full_h == 0 {
-            // Before the first animation load the renderer has no size yet; use
-            // the state's canvas so the initial window is sane.
-            Rect::new(
-                tight.x * dpi,
-                tight.y * dpi,
-                (tight.w * dpi).round().max(1.0),
-                (tight.h * dpi).round().max(1.0),
-            )
-        } else {
-            Rect::new(
-                tight.x * dpi - pad,
-                tight.y * dpi - pad,
-                full_w as f32 + pad * 2.0,
-                full_h as f32 + pad * 2.0,
-            )
-        }
+        let pad = self.trail_pad_px() as f32 / dpi;
+        self.state.window_rect().outset(pad)
     }
 
-    /// Recomputes the stable stage extents relative to the anchor.
+    /// Largest frame extent around the feet over every walk direction, plus
+    /// the glow safety margin and the trail length, in logical points.
     ///
-    /// Extents only grow while the trail lives; letting them shrink as samples
-    /// expire would resize the window (and shift its origin) every ~120 ms,
-    /// which reads as flicker.  They reset once the walk and all ghosts are
-    /// gone.
+    /// This does not depend on the current direction, so the stage stays the
+    /// same size for the whole walk.
+    fn walk_stage_margins(&self) -> (f32, f32, f32, f32) {
+        let scale = self.state.scale;
+        let (mut left, mut top, mut right, mut bottom) = (0.0f32, 0.0f32, 0.0f32, 0.0f32);
+        let mut max_k = 0.05f32;
+        for dir in Direction::ALL {
+            let Ok(spec) = self.catalog.walk_spec(self.state.form, dir) else {
+                continue;
+            };
+            let k = spec.placement.scale.max(0.05);
+            max_k = max_k.max(k);
+            left = left.max(spec.pet_anchor.0 * k * scale);
+            right = right.max((spec.canvas.0 * k - spec.pet_anchor.0 * k) * scale);
+            top = top.max(spec.pet_anchor.1 * k * scale);
+            bottom = bottom.max((spec.canvas.1 * k - spec.pet_anchor.1 * k) * scale);
+        }
+        // Constant margin: walk directions carry different glow layers, and
+        // deriving it from the current one would resize the stage on every turn.
+        let glow = WALK_GLOW_MARGIN_UNITS * max_k * scale;
+        let pad = self.trail_pad_px() as f32 / self.state.dpi.max(0.01);
+        (
+            left + glow + pad,
+            top + glow + pad,
+            right + glow + pad,
+            bottom + glow + pad,
+        )
+    }
+
+    /// Anchor-relative extents of the fixed walking stage (logical points).
+    fn fixed_walk_extents(&self) -> Rect {
+        let (left, top, right, bottom) = self.walk_stage_margins();
+        let left = left.ceil();
+        let top = top.ceil();
+        let right = right.ceil();
+        let bottom = bottom.ceil();
+        Rect::new(-left, -top, left + right, top + bottom)
+    }
+
+    /// Keeps the fixed walking stage while the trail lives.
+    ///
+    /// It is computed once per present from the walk catalog and the current
+    /// trail settings, not from individual ghost frames.  That makes it
+    /// independent of direction changes and of ghosts expiring.  During the
+    /// short fade-out after an action starts, the current action frame is
+    /// unioned in so a big action is never clipped.
     fn update_trail_extents(&mut self) {
         let walking = self.state.mode == Mode::Walk;
         if !self.config.trail_enabled || (!walking && self.trail_samples.is_empty()) {
             self.trail_extents = None;
             return;
         }
-        let dpi = self.state.dpi.max(0.01);
-        let anchor = self.state.anchor;
-        let anchor_px = Point::new(anchor.x * dpi, anchor.y * dpi);
-        let mut bounds = self.current_stage_base_px();
-        for sample in &self.trail_samples {
-            let origin = ghost_frame_origin(sample.anchor, sample.anchor_in_frame, dpi);
-            let ghost = Rect::new(
-                origin.x,
-                origin.y,
-                sample.width as f32,
-                sample.height as f32,
-            );
-            bounds = union_rect(bounds, ghost);
+        let mut extents = self.fixed_walk_extents();
+        if !walking {
+            let anchor = self.state.anchor;
+            let base = self.current_stage_base();
+            let frame = Rect::new(base.x - anchor.x, base.y - anchor.y, base.w, base.h);
+            extents = union_rect(extents, frame);
         }
-        // Store integer extents relative to the anchor, rounded outward.
-        let x = (bounds.x - anchor_px.x).floor();
-        let y = (bounds.y - anchor_px.y).floor();
-        let right = (bounds.right() - anchor_px.x).ceil();
-        let bottom = (bounds.bottom() - anchor_px.y).ceil();
-        let relative = Rect::new(x, y, (right - x).max(1.0), (bottom - y).max(1.0));
-        self.trail_extents = Some(match self.trail_extents {
-            Some(previous) => union_rect(previous, relative),
-            None => relative,
-        });
+        let x = extents.x.floor();
+        let y = extents.y.floor();
+        let right = extents.right().ceil();
+        let bottom = extents.bottom().ceil();
+        self.trail_extents = Some(Rect::new(x, y, (right - x).max(1.0), (bottom - y).max(1.0)));
     }
 
-    /// Desired stage rect in physical global pixels (canvas + glow + trail).
+    /// Stage rect in **logical points, aligned to whole points** so the window
+    /// origin and all layer offsets share one integer grid.
     ///
-    /// While a trail is alive the rect is the anchor plus the stable cached
-    /// extents.  That keeps the stage size constant across direction changes
-    /// (walk directions have different glow margins) and as old ghosts expire.
-    fn stage_rect_px(&self) -> Rect {
+    /// The stage stays at a fixed size, relative to the feet, for the whole
+    /// walk; only its position follows the pet.
+    fn stage_rect(&self) -> Rect {
         if let Some(extents) = self.trail_extents {
-            let dpi = self.state.dpi.max(0.01);
             return Rect::new(
-                self.state.anchor.x * dpi + extents.x,
-                self.state.anchor.y * dpi + extents.y,
-                extents.w,
-                extents.h,
+                (self.state.anchor.x + extents.x).round(),
+                (self.state.anchor.y + extents.y).round(),
+                extents.w.max(1.0),
+                extents.h.max(1.0),
             );
         }
-        let base = self.current_stage_base_px();
-        // Round outward so a fractional frame origin is not clipped.
-        let x = base.x.floor();
-        let y = base.y.floor();
-        let right = base.right().ceil();
-        let bottom = base.bottom().ceil();
-        Rect::new(x, y, (right - x).max(1.0), (bottom - y).max(1.0))
+        let base = self.current_stage_base();
+        Rect::new(
+            base.x.round(),
+            base.y.round(),
+            base.w.ceil().max(1.0),
+            base.h.ceil().max(1.0),
+        )
     }
 
     /// Physical pixels of the usable area of the display the pet is on.
@@ -1286,16 +1315,20 @@ impl App {
     /// Applies the current stage rect to the window and the presenter layer.
     fn apply_window_geometry(&mut self) {
         let rect = self.visible_rect();
+        // Whole logical points keep the window and every layer on one integer
+        // grid (AppKit rounds window frames to points anyway).
+        let logical_w = rect.w.round().max(1.0);
+        let logical_h = rect.h.round().max(1.0);
+        let pos_x = rect.x.round();
+        let pos_y = rect.y.round();
         let dpi = self.state.dpi.max(0.01);
-        let want_w = (rect.w * dpi).round().max(1.0) as u32;
-        let want_h = (rect.h * dpi).round().max(1.0) as u32;
+        let want_w = (logical_w * dpi).round().max(1.0) as u32;
+        let want_h = (logical_h * dpi).round().max(1.0) as u32;
         if self.last_window_size != Some((want_w, want_h)) {
             if let Some(window) = &self.window {
                 if window.inner_size() != PhysicalSize::new(want_w, want_h) {
-                    let _ = window.request_inner_size(LogicalSize::new(
-                        rect.w.max(1.0) as f64,
-                        rect.h.max(1.0) as f64,
-                    ));
+                    let _ = window
+                        .request_inner_size(LogicalSize::new(logical_w as f64, logical_h as f64));
                 }
             }
             if let Some(presenter) = self.presenter.as_mut() {
@@ -1313,9 +1346,9 @@ impl App {
                 (position.x as f32 / scale, position.y as f32 / scale)
             });
             let on_target =
-                current.is_some_and(|(x, y)| (x - rect.x).abs() < 0.5 && (y - rect.y).abs() < 0.5);
+                current.is_some_and(|(x, y)| (x - pos_x).abs() < 0.01 && (y - pos_y).abs() < 0.01);
             if !on_target {
-                window.set_outer_position(LogicalPosition::new(rect.x as f64, rect.y as f64));
+                window.set_outer_position(LogicalPosition::new(pos_x as f64, pos_y as f64));
             }
             // A trail-sized transparent window would swallow clicks far away
             // from the pet, so the stage stays click-through except when the
@@ -1394,21 +1427,15 @@ impl App {
             return;
         }
         let rect = self.visible_rect();
-        window.set_outer_position(LogicalPosition::new(rect.x as f64, rect.y as f64));
+        window.set_outer_position(LogicalPosition::new(
+            rect.x.round() as f64,
+            rect.y.round() as f64,
+        ));
     }
 
     /// Visible part of the stage in **logical global points**.
     fn visible_rect(&self) -> Rect {
-        let dpi = self.state.dpi.max(0.01);
-        let visible = self
-            .stage_rect_px()
-            .intersect(self.active_display_bounds_px());
-        Rect::new(
-            visible.x / dpi,
-            visible.y / dpi,
-            visible.w / dpi,
-            visible.h / dpi,
-        )
+        self.stage_rect().intersect(self.active_display_bounds())
     }
 
     /// Largest extent of the pet's *silhouette* around its anchor, over all
