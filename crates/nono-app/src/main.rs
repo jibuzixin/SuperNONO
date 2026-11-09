@@ -4,7 +4,7 @@
 //! winit event loop, and translate state-machine changes into window geometry,
 //! rendering and audio.  All behaviour lives in `nono-core`.
 
-use std::collections::VecDeque;
+use std::collections::{HashSet, VecDeque};
 use std::path::{Path, PathBuf};
 use std::time::{Duration, Instant, SystemTime};
 
@@ -2760,7 +2760,7 @@ fn parse_args() -> Result<Command> {
                 }
                 let form = args[i + 1]
                     .parse::<u8>()
-                    .context("form must be 1, 2 or 3")?;
+                    .context("form must be 1–5")?;
                 let kind = args[i + 2].clone();
                 let slug = args[i + 3].clone();
                 let frame = args[i + 4]
@@ -2870,6 +2870,102 @@ fn spec_for(
     Ok(spec)
 }
 
+fn shape_key(value: &serde_json::Value) -> Option<String> {
+    match value {
+        serde_json::Value::String(s) => Some(s.clone()),
+        serde_json::Value::Number(n) => Some(n.to_string()),
+        _ => None,
+    }
+}
+
+fn is_baked(value: &serde_json::Value) -> bool {
+    value.get("baked").and_then(|v| v.as_bool()).unwrap_or(false)
+}
+
+/// Audits every animation's glow labels: `glowShapes` vs per-layer `nono.glow`
+/// and the layer `nono.shape` ids the fallback needs. Prints warnings and
+/// returns their count (also surfaced by `nono --check`).
+fn audit_glow(catalog: &Catalog) -> usize {
+    let root = catalog.root();
+    let mut warnings = 0usize;
+    for form in catalog.forms() {
+        let mut files: Vec<&str> = Vec::new();
+        for dir in form.walk.directions.values() {
+            files.push(&dir.file);
+        }
+        for action in &form.actions {
+            files.push(&action.file);
+        }
+        for expression in &form.expressions {
+            files.push(&expression.file);
+        }
+        let (mut tables, mut table_baked, mut manual, mut manual_baked, mut matches) =
+            (0usize, 0usize, 0usize, 0usize, 0usize);
+        for file in &files {
+            let path = root.join(file);
+            let Ok(bytes) = std::fs::read(&path) else {
+                warnings += 1;
+                println!("  glow warn {file}: cannot read file");
+                continue;
+            };
+            let Ok(doc) = serde_json::from_slice::<serde_json::Value>(&bytes) else {
+                warnings += 1;
+                println!("  glow warn {file}: invalid JSON");
+                continue;
+            };
+            let nono = doc.get("nono");
+            let table = nono
+                .and_then(|n| n.get("glowShapes"))
+                .and_then(|v| v.as_object());
+            let table_shapes = table.map(|m| m.len()).unwrap_or(0);
+            let baked = table.map(|m| m.values().filter(|v| is_baked(v)).count()).unwrap_or(0);
+            let mut layers_glow = 0usize;
+            let mut layers_baked = 0usize;
+            let mut shapes = HashSet::new();
+            if let Some(layers) = doc.get("layers").and_then(|v| v.as_array()) {
+                for layer in layers {
+                    let layer_nono = layer.get("nono");
+                    if let Some(glow) = layer_nono.and_then(|n| n.get("glow")) {
+                        layers_glow += 1;
+                        if is_baked(glow) {
+                            layers_baked += 1;
+                        }
+                    }
+                    if let Some(shape) = layer_nono.and_then(|n| n.get("shape")).and_then(shape_key) {
+                        shapes.insert(shape);
+                    }
+                }
+            }
+            let hit = table
+                .map(|m| m.keys().filter(|k| shapes.contains(*k)).count())
+                .unwrap_or(0);
+            tables += table_shapes;
+            table_baked += baked;
+            manual += layers_glow;
+            manual_baked += layers_baked;
+            matches += hit;
+            if table_shapes > 0 && hit == 0 {
+                warnings += 1;
+                let keys: Vec<&String> = table.map(|m| m.keys().take(4).collect()).unwrap_or_default();
+                let layer_shapes: Vec<&String> = shapes.iter().take(4).collect();
+                println!(
+                    "  glow warn {file}: glowShapes {table_shapes} shapes but no layer nono.shape matches (table {keys:?}, layers {layer_shapes:?})"
+                );
+            }
+            if table_shapes == 0 && layers_glow == 0 {
+                warnings += 1;
+                println!("  glow warn {file}: no glowShapes and no per-layer nono.glow");
+            }
+        }
+        println!(
+            "glow audit: form {}: {} anims, table {tables} ({table_baked} baked), manual {manual} ({manual_baked} baked), shape matches {matches}",
+            form.id,
+            files.len()
+        );
+    }
+    warnings
+}
+
 fn render_icon(assets: PathBuf, out: PathBuf, size: u32, tint: Option<[u8; 3]>) -> Result<()> {
     let catalog = Catalog::load(&assets)?;
     let spec = catalog.walk_spec(catalog.default_form(), Direction::Down)?;
@@ -2920,6 +3016,7 @@ fn main() -> Result<()> {
             init_tracing(false);
             let catalog =
                 Catalog::load(&assets).with_context(|| format!("loading {}", assets.display()))?;
+            let glow_warnings = audit_glow(&catalog);
             let mut total = 0;
             for form in catalog.forms() {
                 total += form.actions.len() + form.expressions.len() + form.walk.directions.len();
@@ -2932,7 +3029,7 @@ fn main() -> Result<()> {
                 );
             }
             println!(
-                "ok: {} animations in {} (assets v{})",
+                "ok: {} animations in {} (assets v{}) — glow warnings: {glow_warnings}",
                 total,
                 assets.display(),
                 catalog.asset_version().unwrap_or("?")

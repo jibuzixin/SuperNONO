@@ -11,6 +11,7 @@ name = "nono"
 path = "src/main.rs"
 
 [dependencies]
+serde_json.workspace = true
 nono-core.workspace = true
 nono-render.workspace = true
 nono-platform.workspace = true
