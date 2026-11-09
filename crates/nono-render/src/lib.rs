@@ -320,6 +320,12 @@ impl Renderer {
         if fade <= 0.0 {
             return;
         }
+        let (base_px, applied, pixel_scale, placement_scale) = (
+            self.base_px,
+            self.applied_offset,
+            self.pixel_scale,
+            self.placement.scale,
+        );
         let Self {
             buffer,
             width,
@@ -331,6 +337,10 @@ impl Renderer {
             std::slice::from_raw_parts_mut(buffer.as_mut_ptr() as *mut u8, buffer.len() * 4)
         };
         for pass in glow_passes.iter_mut() {
+            let _ = pass.anim.picture_mut().translate(
+                base_px.0 + applied.0 * pixel_scale * placement_scale,
+                base_px.1 + applied.1 * pixel_scale * placement_scale,
+            );
             if let Some(frame) = frame {
                 let _ = pass.anim.set_frame(frame);
             }

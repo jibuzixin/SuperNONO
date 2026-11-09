@@ -91,6 +91,10 @@
       ]
     },
     "form5/action/boot": {
+      "offset": [
+        -41.67,
+        -8.34
+      ],
       "offset_start": [
         -41.67,
         -8.34
