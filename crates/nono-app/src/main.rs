@@ -149,14 +149,25 @@ struct App {
 }
 
 /// Maps the user-facing glow settings onto the renderer's.
-fn glow_settings(config: &Config) -> GlowSettings {
+fn glow_settings(config: &Config, form: u8) -> GlowSettings {
     // `NONO_GLOW_SIGMA` / `NONO_GLOW_ALPHA` override the config for quick A/B
     // tuning without editing `config.toml`.
     let env_f32 = |key: &str| std::env::var(key).ok().and_then(|v| v.parse::<f32>().ok());
+    // Form 5's small sparkles need a wider/brighter halo than the other forms.
+    let sigma = if form == 5 {
+        config.glow_sigma_form5.unwrap_or(config.glow_sigma)
+    } else {
+        config.glow_sigma
+    };
+    let alpha = if form == 5 {
+        config.glow_alpha_form5.unwrap_or(config.glow_alpha)
+    } else {
+        config.glow_alpha
+    };
     GlowSettings {
         enabled: config.glow,
-        sigma_scale: env_f32("NONO_GLOW_SIGMA").unwrap_or(config.glow_sigma),
-        alpha_scale: env_f32("NONO_GLOW_ALPHA").unwrap_or(config.glow_alpha),
+        sigma_scale: env_f32("NONO_GLOW_SIGMA").unwrap_or(sigma),
+        alpha_scale: env_f32("NONO_GLOW_ALPHA").unwrap_or(alpha),
         ..GlowSettings::default()
     }
 }
@@ -391,7 +402,7 @@ impl App {
         let bus_rx = bus.subscribe();
         let mut renderer = Renderer::new().context("initialising the ThorVG renderer")?;
         renderer.set_tint_cache_dir(Some(config::cache_dir()));
-        renderer.set_glow(glow_settings(&config));
+        renderer.set_glow(glow_settings(&config, config.form));
         let state = PetState::new(
             &catalog,
             config.form,
@@ -549,7 +560,7 @@ impl App {
         self.audio.set_enabled(self.config.sound);
         self.audio.set_volume(self.config.volume);
         self.renderer.set_tint(self.config.tint);
-        self.renderer.set_glow(glow_settings(&self.config));
+        self.renderer.set_glow(glow_settings(&self.config, self.state.form));
 
         self.bus.publish(Event::ChangeForm {
             form: self.state.form,
@@ -2244,7 +2255,7 @@ impl App {
                 if glow_changed {
                     // Blur radius/opacity are baked into the glow passes when an
                     // animation loads, so pick them up by reloading the clip.
-                    self.renderer.set_glow(glow_settings(&self.config));
+                    self.renderer.set_glow(glow_settings(&self.config, self.state.form));
                     self.reload_preserving_frame(now);
                 }
                 true

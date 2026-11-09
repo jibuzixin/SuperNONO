@@ -168,6 +168,11 @@ move_speed = 60.0
 follow_speed = 140.0
 idle_speed = 80.0
 form1_walk_anim_speed = 1.0
+glow = true
+glow_sigma = 0.6
+glow_alpha = 1.0
+glow_sigma_form5 = 0.9
+glow_alpha_form5 = 1.4
 
 display_ids = [2]          # 可活动的显示器（`nono --list-displays` 里的 id）
 start_at_center = true     # 启动位置：true=主屏中心，false=记住上次位置
@@ -182,6 +187,9 @@ summon_animation = true    # 召唤/启动时是否播放召唤动画
 - `idle_speed`：待机自由移动速度；删掉这一行就跟随全局
 - `form1_walk_anim_speed`：0.25–4.0，形态 1 八个方向走路/待机动画的**播放速度倍率**
   （1.0 = 原始 25fps；只影响动画循环，不影响移动速度，配置热重载即时生效）
+- `glow`：是否渲染辉光；`glow_sigma`（0.1–2.0）/`glow_alpha`（0–2.0）控制全局辉光模糊与亮度
+- `glow_sigma_form5` / `glow_alpha_form5`：只覆盖**形态 5**的辉光（默认 0.9 / 1.4），
+  其他形态仍用全局值；删掉这两行就回落到全局
 - `display_ids`：可活动显示器的平台 id 列表；删掉这一行（或留空）等于只允许主显示器。
   启动时会过滤已断开的 id；如果一块都不剩，自动回退到主显示器。托盘勾选后会立即写回。
 - `start_at_center`：`true`（默认）启动时回到主显示器中心；`false` 恢复 `anchor`

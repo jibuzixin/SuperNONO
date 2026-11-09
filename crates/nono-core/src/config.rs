@@ -77,6 +77,11 @@ pub struct Config {
     pub glow_sigma: f32,
     /// Glow brightness multiplier (1.0 = the source strength).
     pub glow_alpha: f32,
+    /// Form-5-only glow overrides (fallback: the global values above).
+    #[serde(default)]
+    pub glow_sigma_form5: Option<f32>,
+    #[serde(default)]
+    pub glow_alpha_form5: Option<f32>,
 }
 
 fn default_walk_anim_speed() -> f32 {
@@ -114,6 +119,8 @@ impl Default for Config {
             glow: true,
             glow_sigma: 0.6,
             glow_alpha: 1.0,
+            glow_sigma_form5: Some(0.9),
+            glow_alpha_form5: Some(1.4),
         }
     }
 }
@@ -187,6 +194,12 @@ impl Config {
         self.trail_opacity = (trail::sanitize_opacity(self.trail_opacity) * 100.0).round() / 100.0;
         self.glow_sigma = self.glow_sigma.clamp(0.1, 2.0);
         self.glow_alpha = self.glow_alpha.clamp(0.0, 2.0);
+        if let Some(v) = self.glow_sigma_form5.as_mut() {
+            *v = v.clamp(0.1, 2.0);
+        }
+        if let Some(v) = self.glow_alpha_form5.as_mut() {
+            *v = v.clamp(0.0, 2.0);
+        }
         if let Some(ids) = &mut self.display_ids {
             ids.sort_unstable();
             ids.dedup();

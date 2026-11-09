@@ -663,18 +663,22 @@ pub(crate) fn composite_under(
         for x in x0..x1 {
             let index = (y * width + x) * 4;
             sample(glow, glow_width, glow_height, x as f32 * scale, fy, &mut sample_rgba);
-            let alpha = sample_rgba[3] / 255.0;
-            if alpha <= 0.0 {
+            let glow_alpha = sample_rgba[3] / 255.0;
+            if glow_alpha <= 0.0 {
                 continue;
             }
-            let keep = 1.0 - alpha;
+            // The glow is *under* the character: the already-drawn character
+            // stays on top, and the glow only contributes where the character
+            // is transparent.  (The old blend was source-over, so halos of
+            // bottom layers showed through the body.)
+            let under_alpha = main[index + 3] as f32 / 255.0;
+            let keep = 1.0 - under_alpha;
             for c in 0..3 {
                 let under = main[index + c] as f32 / 255.0;
-                let value = sample_rgba[c] / 255.0 + under * keep;
+                let value = under + sample_rgba[c] / 255.0 * keep;
                 main[index + c] = (value * 255.0).round().clamp(0.0, 255.0) as u8;
             }
-            let under = main[index + 3] as f32 / 255.0;
-            main[index + 3] = ((under + alpha * (1.0 - under)) * 255.0).round() as u8;
+            main[index + 3] = ((under_alpha + glow_alpha * keep) * 255.0).round() as u8;
         }
     }
 }
@@ -689,6 +693,18 @@ mod tests {
             .join("../../assets")
             .canonicalize()
             .expect("assets dir")
+    }
+
+    #[test]
+    fn glow_composites_under_the_character() {
+        let mut opaque_white = vec![255u8, 255, 255, 255];
+        let red = vec![255u8, 0, 0, 255];
+        composite_under(&mut opaque_white, 1, 1, &red, 1, 1, 1.0);
+        assert_eq!(opaque_white, vec![255, 255, 255, 255], "opaque character hides the glow");
+
+        let mut transparent = vec![0u8, 0, 0, 0];
+        composite_under(&mut transparent, 1, 1, &red, 1, 1, 1.0);
+        assert_eq!(transparent, vec![255, 0, 0, 255], "glow shows where the character is clear");
     }
 
     #[test]
