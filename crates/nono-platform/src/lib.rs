@@ -48,3 +48,60 @@ pub fn cursor_position() -> Option<nono_core::Point> {
         None
     }
 }
+
+/// Opens a native colour picker for the custom body tint.
+pub fn show_color_panel(initial: Option<[u8; 3]>) -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        macos::show_color_panel(initial)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = initial;
+        false
+    }
+}
+
+/// Whether the native colour panel is currently on screen.
+pub fn color_panel_visible() -> bool {
+    #[cfg(target_os = "macos")]
+    {
+        macos::color_panel_visible()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        false
+    }
+}
+
+/// Final colour selected in the native colour panel, as sRGB.
+pub fn color_panel_color() -> Option<[u8; 3]> {
+    #[cfg(target_os = "macos")]
+    {
+        macos::color_panel_color()
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        None
+    }
+}
+
+pub fn hide_color_panel() {
+    #[cfg(target_os = "macos")]
+    {
+        macos::hide_color_panel();
+    }
+}
+
+/// Native text prompt for `#RRGGBB` / `RRGGBB` / `#RGB` input.
+pub fn prompt_hex_color(initial: Option<[u8; 3]>) -> Option<[u8; 3]> {
+    #[cfg(target_os = "macos")]
+    {
+        macos::prompt_hex_color(initial)
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = initial;
+        None
+    }
+}

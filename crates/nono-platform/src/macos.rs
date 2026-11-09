@@ -4,11 +4,12 @@
 
 use objc2::MainThreadMarker;
 use objc2_app_kit::{
-    NSApplication, NSApplicationActivationPolicy, NSEvent, NSScreen, NSView,
-    NSWindowCollectionBehavior,
+    NSAlert, NSAlertFirstButtonReturn, NSApplication, NSApplicationActivationPolicy, NSColor,
+    NSColorPanel, NSColorPanelMode, NSColorSpace, NSControl, NSEvent, NSScreen, NSTextField,
+    NSView, NSWindow, NSWindowCollectionBehavior,
 };
 use objc2_core_graphics::{CGDisplayBounds, CGMainDisplayID};
-use objc2_foundation::{ns_string, NSNumber};
+use objc2_foundation::{ns_string, NSNumber, NSSize, NSString};
 use winit::raw_window_handle::{HasWindowHandle, RawWindowHandle};
 use winit::window::Window;
 
@@ -161,4 +162,147 @@ pub fn cursor_position() -> Option<Point> {
         location.x as f32,
         (main_height - location.y) as f32,
     ))
+}
+
+// ── custom tint colour picker ───────────────────────────────────────
+
+fn color_panel_window(panel: &NSColorPanel) -> &NSWindow {
+    // NSColorPanel is an NSPanel/NSWindow subclass; the pointer cast only
+    // accesses inherited window methods.
+    unsafe { &*(panel as *const NSColorPanel as *const NSWindow) }
+}
+
+fn color_channel(value: f64) -> u8 {
+    (value * 255.0).round().clamp(0.0, 255.0) as u8
+}
+
+/// Opens the shared macOS colour panel (colour wheel / RGB sliders).
+#[allow(deprecated)]
+pub fn show_color_panel(initial: Option<[u8; 3]>) -> bool {
+    let Some(mtm) = MainThreadMarker::new() else {
+        return false;
+    };
+    NSApplication::sharedApplication(mtm).activateIgnoringOtherApps(true);
+    let panel = NSColorPanel::sharedColorPanel(mtm);
+    if let Some([r, g, b]) = initial {
+        let color = NSColor::colorWithSRGBRed_green_blue_alpha(
+            r as f64 / 255.0,
+            g as f64 / 255.0,
+            b as f64 / 255.0,
+            1.0,
+        );
+        panel.setColor(&color);
+    }
+    panel.setMode(NSColorPanelMode::Wheel);
+    panel.orderFront(None);
+    true
+}
+
+pub fn color_panel_visible() -> bool {
+    let Some(mtm) = MainThreadMarker::new() else {
+        return false;
+    };
+    let panel = NSColorPanel::sharedColorPanel(mtm);
+    color_panel_window(&panel).isVisible()
+}
+
+pub fn color_panel_color() -> Option<[u8; 3]> {
+    let mtm = MainThreadMarker::new()?;
+    let panel = NSColorPanel::sharedColorPanel(mtm);
+    let color = panel.color();
+    let rgb = color.colorUsingColorSpace(&NSColorSpace::sRGBColorSpace())?;
+    Some([
+        color_channel(rgb.redComponent()),
+        color_channel(rgb.greenComponent()),
+        color_channel(rgb.blueComponent()),
+    ])
+}
+
+pub fn hide_color_panel() {
+    let Some(mtm) = MainThreadMarker::new() else {
+        return;
+    };
+    let panel = NSColorPanel::sharedColorPanel(mtm);
+    color_panel_window(&panel).orderOut(None);
+}
+
+fn parse_color_text(text: &str) -> Option<[u8; 3]> {
+    let trimmed = text.trim();
+    if trimmed.contains(',') {
+        let parts = trimmed
+            .split(',')
+            .map(|part| part.trim().parse::<u8>().ok())
+            .collect::<Option<Vec<_>>>()?;
+        if parts.len() == 3 {
+            return Some([parts[0], parts[1], parts[2]]);
+        }
+        return None;
+    }
+    let hex = trimmed.trim_start_matches('#');
+    let digit = |i: usize| u8::from_str_radix(&hex[i..i + 1], 16).ok();
+    let pair = |i: usize| u8::from_str_radix(&hex[i..i + 2], 16).ok();
+    match hex.len() {
+        3 => Some([digit(0)? * 17, digit(1)? * 17, digit(2)? * 17]),
+        6 => Some([pair(0)?, pair(2)?, pair(4)?]),
+        _ => None,
+    }
+}
+
+/// Shows a small native input dialog for an RGB hex value.
+///
+/// Returns `None` when cancelled; re-prompts when the text is not a valid
+/// colour so the user gets immediate feedback.
+#[allow(deprecated)]
+pub fn prompt_hex_color(initial: Option<[u8; 3]>) -> Option<[u8; 3]> {
+    let mtm = MainThreadMarker::new()?;
+    NSApplication::sharedApplication(mtm).activateIgnoringOtherApps(true);
+
+    let alert = NSAlert::new(mtm);
+    alert.setMessageText(ns_string!("自定义 NONO 颜色"));
+    alert.addButtonWithTitle(ns_string!("应用"));
+    alert.addButtonWithTitle(ns_string!("取消"));
+
+    let field = NSTextField::new(mtm);
+    field.setFrameSize(NSSize::new(260.0, 24.0));
+    field.setEditable(true);
+    field.setSelectable(true);
+    field.setBezeled(true);
+    field.setDrawsBackground(true);
+    let initial_text = initial
+        .map(|[r, g, b]| format!("#{r:02X}{g:02X}{b:02X}"))
+        .unwrap_or_else(|| "#FFFFFF".to_string());
+    field.setStringValue(&NSString::from_str(&initial_text));
+    field.setPlaceholderString(Some(ns_string!("#RRGGBB")));
+    let field_view = unsafe { &*(&*field as *const NSTextField as *const NSView) };
+    alert.setAccessoryView(Some(field_view));
+
+    let mut hint = "输入 #RRGGBB 或 RRGGBB；也支持 #RGB 简写。".to_string();
+    loop {
+        alert.setInformativeText(&NSString::from_str(&hint));
+        if alert.runModal() != NSAlertFirstButtonReturn {
+            return None;
+        }
+        let control = unsafe { &*(&*field as *const NSTextField as *const NSControl) };
+        let text = control.stringValue().to_string();
+        if let Some(rgb) = parse_color_text(&text) {
+            return Some(rgb);
+        }
+        hint = "格式无效，请输入例如 #FF5A96、FF5A96 或 #F59。".to_string();
+    }
+}
+
+#[cfg(test)]
+mod color_tests {
+    use super::parse_color_text;
+
+    #[test]
+    fn parses_hex_and_rgb_inputs() {
+        assert_eq!(parse_color_text("#FF5A96"), Some([255, 90, 150]));
+        assert_eq!(parse_color_text("ff5a96"), Some([255, 90, 150]));
+        assert_eq!(parse_color_text("  #F59 "), Some([255, 85, 153]));
+        assert_eq!(parse_color_text("255, 90, 150"), Some([255, 90, 150]));
+        assert_eq!(parse_color_text("#GGGGGG"), None);
+        assert_eq!(parse_color_text("#FF5A9"), None);
+        assert_eq!(parse_color_text(""), None);
+    }
 }

@@ -19,7 +19,7 @@ import os
 import sys
 from pathlib import Path
 
-FORM_NAMES = {1: "形态 1", 2: "形态 2", 3: "形态 3", 4: "形态 4"}
+FORM_NAMES = {1: "形态 1", 2: "形态 2", 3: "形态 3", 4: "形态 4", 5: "形态 5"}
 DIRECTIONS = [
     "down",
     "leftdown",
@@ -43,6 +43,7 @@ RETURN_FACING_BY_FORM_SLUG = {
     (2, "ball"): "right",
     (3, "ball"): "down",
     (4, "ball"): "down",
+    (5, "ball"): "down",
 }
 
 

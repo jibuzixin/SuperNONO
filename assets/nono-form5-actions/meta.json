@@ -1,0 +1,122 @@
+{
+  "name": "nono-form5-actions",
+  "form": 5,
+  "description": "超能 NONO 形态 5 的 7 个动作动画（Lottie）",
+  "source": "NONO形态与动作_20261021/资源/nono/super/action/{2,3,4,6,7}_5.swf",
+  "frameRate": 25,
+  "walkCrop": [
+    250.05,
+    140.0
+  ],
+  "walkPetAnchor": [
+    25.45,
+    59.95
+  ],
+  "actions": [
+    {
+      "id": 2,
+      "slug": "boot",
+      "name": "开机",
+      "file": "nono5_action_boot.json",
+      "frames": 99,
+      "layers": 106,
+      "bytes": 495615,
+      "crop": [
+        148.1,
+        54.15
+      ],
+      "canvas": [
+        135,
+        113
+      ],
+      "petAnchor": [
+        66.95,
+        97.9
+      ]
+    },
+    {
+      "id": 3,
+      "slug": "shutdown",
+      "name": "关机",
+      "file": "nono5_action_shutdown.json",
+      "frames": 90,
+      "layers": 22,
+      "bytes": 88767,
+      "crop": [
+        226.95,
+        83.55
+      ],
+      "canvas": [
+        56,
+        91
+      ],
+      "petAnchor": [
+        25.45,
+        85.45
+      ]
+    },
+    {
+      "id": 4,
+      "slug": "ball",
+      "name": "玩球",
+      "file": "nono5_action_ball.json",
+      "frames": 315,
+      "layers": 127,
+      "bytes": 678565,
+      "crop": [
+        205.2,
+        -32.05
+      ],
+      "canvas": [
+        367,
+        230
+      ],
+      "petAnchor": [
+        47.1925,
+        201.05
+      ]
+    },
+    {
+      "id": 6,
+      "slug": "summon",
+      "name": "召唤",
+      "file": "nono5_action_summon.json",
+      "frames": 108,
+      "layers": 101,
+      "bytes": 2031214,
+      "crop": [
+        424.35,
+        206.4
+      ],
+      "canvas": [
+        375,
+        237
+      ],
+      "petAnchor": [
+        159.6164,
+        59.95
+      ]
+    },
+    {
+      "id": 7,
+      "slug": "cube",
+      "name": "玩魔方",
+      "file": "nono5_action_cube.json",
+      "frames": 248,
+      "layers": 151,
+      "bytes": 17269119,
+      "crop": [
+        128.4,
+        -186.8
+      ],
+      "canvas": [
+        651,
+        651
+      ],
+      "petAnchor": [
+        147.0833,
+        386.7333
+      ]
+    }
+  ]
+}

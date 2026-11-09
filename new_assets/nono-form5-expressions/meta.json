@@ -1,0 +1,105 @@
+{
+  "name": "nono-form5-expressions",
+  "form": 5,
+  "description": "超能 NONO 形态 5 的 4 个表情动画（Lottie）",
+  "source": "NONO形态与动作_20261021/资源/nono/super/exp/{1..4}_5.swf",
+  "frameRate": 25,
+  "walkCrop": [
+    250.05,
+    140.0
+  ],
+  "walkPetAnchor": [
+    25.45,
+    59.95
+  ],
+  "expressions": [
+    {
+      "id": 1,
+      "slug": "happy",
+      "name": "开心",
+      "file": "nono5_exp_happy.json",
+      "sourceFile": "exp/1_5.swf",
+      "frames": 103,
+      "layers": 40,
+      "bytes": 170210,
+      "crop": [
+        244.6,
+        140.0
+      ],
+      "canvas": [
+        65,
+        96
+      ],
+      "petAnchor": [
+        30.8993,
+        59.95
+      ]
+    },
+    {
+      "id": 2,
+      "slug": "angry",
+      "name": "生气",
+      "file": "nono5_exp_angry.json",
+      "sourceFile": "exp/2_5.swf",
+      "frames": 105,
+      "layers": 75,
+      "bytes": 627520,
+      "crop": [
+        209.7,
+        44.45
+      ],
+      "canvas": [
+        128,
+        198
+      ],
+      "petAnchor": [
+        65.7965,
+        155.5235
+      ]
+    },
+    {
+      "id": 3,
+      "slug": "surprise",
+      "name": "惊讶",
+      "file": "nono5_exp_surprise.json",
+      "sourceFile": "exp/3_5.swf",
+      "frames": 110,
+      "layers": 60,
+      "bytes": 413458,
+      "crop": [
+        239.15,
+        140.0
+      ],
+      "canvas": [
+        71,
+        103
+      ],
+      "petAnchor": [
+        36.3568,
+        59.95
+      ]
+    },
+    {
+      "id": 4,
+      "slug": "sad",
+      "name": "悲哀",
+      "file": "nono5_exp_sad.json",
+      "sourceFile": "exp/4_5.swf",
+      "frames": 135,
+      "layers": 35,
+      "bytes": 242856,
+      "crop": [
+        165.9,
+        62.3
+      ],
+      "canvas": [
+        81,
+        130
+      ],
+      "petAnchor": [
+        41.6093,
+        86.6509
+      ]
+    }
+  ]
+}

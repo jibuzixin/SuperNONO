@@ -124,6 +124,11 @@ struct App {
     config_watch: bool,
     config_watch_next: Instant,
     config_mtime: Option<SystemTime>,
+    /// The shared macOS colour panel is non-modal; poll it and apply the final
+    /// colour when it closes.
+    color_picker_open: bool,
+    color_picker_seen_visible: bool,
+    color_picker_deadline: Instant,
     last_anim_id: String,
     last_frame_key: i64,
     dirty: bool,
@@ -434,6 +439,9 @@ impl App {
             config_watch: false,
             config_watch_next: now,
             config_mtime: None,
+            color_picker_open: false,
+            color_picker_seen_visible: false,
+            color_picker_deadline: now,
             last_anim_id: String::new(),
             last_frame_key: i64::MIN,
             dirty: true,
@@ -1694,8 +1702,67 @@ impl App {
         self.follow_next = now + Duration::from_millis(150);
     }
 
+    /// Opens the native colour wheel.  The panel is non-modal, so its final
+    /// colour is applied when the user closes it (see `poll_color_picker`).
+    fn open_color_picker(&mut self) {
+        if self.color_picker_open {
+            // Already open: just bring it forward.
+            let _ = nono_platform::show_color_panel(self.config.tint);
+            return;
+        }
+        if nono_platform::show_color_panel(self.config.tint) {
+            self.color_picker_open = true;
+            self.color_picker_seen_visible = false;
+            self.color_picker_deadline = Instant::now() + Duration::from_secs(5);
+            // The custom item is a check item; restore its state after the
+            // click (opening the panel does not change the active colour yet).
+            if let Some(tray) = &self.tray {
+                tray.sync_checks(&self.config);
+            }
+            tracing::debug!("custom colour panel opened");
+        } else {
+            tracing::warn!("the native colour panel is unavailable");
+        }
+    }
+
+    fn prompt_tint_hex(&mut self, now: Instant) {
+        if self.color_picker_open {
+            nono_platform::hide_color_panel();
+            self.color_picker_open = false;
+            self.color_picker_seen_visible = false;
+        }
+        if let Some([r, g, b]) = nono_platform::prompt_hex_color(self.config.tint) {
+            self.apply_tint(&format!("{r},{g},{b}"), now);
+        }
+    }
+
+    fn poll_color_picker(&mut self, now: Instant) {
+        if !self.color_picker_open {
+            return;
+        }
+        if nono_platform::color_panel_visible() {
+            self.color_picker_seen_visible = true;
+            return;
+        }
+        // Apply once the panel has actually been seen and then closed.  The
+        // deadline covers platforms/windows where it never becomes visible.
+        if !self.color_picker_seen_visible && now < self.color_picker_deadline {
+            return;
+        }
+        self.color_picker_open = false;
+        self.color_picker_seen_visible = false;
+        if let Some([r, g, b]) = nono_platform::color_panel_color() {
+            self.apply_tint(&format!("{r},{g},{b}"), now);
+        }
+    }
+
     /// Applies a palette choice (`default` or `r,g,b`) without touching assets.
     fn apply_tint(&mut self, spec: &str, now: Instant) {
+        if self.color_picker_open {
+            nono_platform::hide_color_panel();
+            self.color_picker_open = false;
+            self.color_picker_seen_visible = false;
+        }
         let tint = if spec == "default" {
             None
         } else {
@@ -1855,6 +1922,8 @@ impl App {
                 self.render_now(Instant::now());
                 self.save_config();
             }
+            MENU_TINT_PICKER => self.open_color_picker(),
+            MENU_TINT_HEX => self.prompt_tint_hex(now),
             _ => {
                 if let Some(form) = id.strip_prefix(MENU_FORM_PREFIX) {
                     if let Ok(form) = form.parse::<u8>() {
@@ -2320,7 +2389,10 @@ impl App {
             self.behavior.next_wake()
         };
         // Display hot-plug is checked occasionally even while the pet sleeps.
-        let next = next.min(self.display_poll_next);
+        let mut next = next.min(self.display_poll_next);
+        if self.color_picker_open {
+            next = next.min(now + Duration::from_millis(100));
+        }
         event_loop.set_control_flow(ControlFlow::WaitUntil(next));
     }
 }
@@ -2473,10 +2545,15 @@ impl ApplicationHandler<UserEvent> for App {
     }
 
     fn about_to_wait(&mut self, event_loop: &ActiveEventLoop) {
-        if self.window.is_none() || !self.visible {
+        if self.window.is_none() {
             return;
         }
         let now = Instant::now();
+        self.poll_color_picker(now);
+        if !self.visible {
+            self.schedule(event_loop);
+            return;
+        }
         if now >= self.display_poll_next {
             self.poll_displays(event_loop, now);
         }

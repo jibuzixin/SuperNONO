@@ -38,6 +38,8 @@ pub const MENU_SPEED_IDLE_UP: &str = "speed_idle_up";
 pub const MENU_SPEED_IDLE_GLOBAL: &str = "speed_idle_global";
 pub const MENU_SPEED_RESET: &str = "speed_reset";
 pub const MENU_TINT_PREFIX: &str = "tint:";
+pub const MENU_TINT_PICKER: &str = "tint_picker";
+pub const MENU_TINT_HEX: &str = "tint_hex";
 pub const MENU_ACTION_PREFIX: &str = "action:";
 pub const MENU_EXPRESSION_PREFIX: &str = "expression:";
 pub const MENU_FORM_PREFIX: &str = "form:";
@@ -83,6 +85,8 @@ pub struct TrayMenu {
     pub form_items: Vec<(u8, CheckMenuItem)>,
     pub scale_items: Vec<(f32, CheckMenuItem)>,
     pub tint_items: Vec<(Option<[u8; 3]>, CheckMenuItem)>,
+    pub tint_custom: CheckMenuItem,
+    pub tint_hex: MenuItem,
     pub speed_move_value: MenuItem,
     pub speed_follow_value: MenuItem,
     pub speed_idle_value: MenuItem,
@@ -117,6 +121,14 @@ impl TrayMenu {
         for (value, item) in &self.tint_items {
             item.set_checked(*value == config.tint);
         }
+        let is_preset = TINT_PRESETS.iter().any(|(_, value)| *value == config.tint);
+        let custom = config.tint.filter(|_| !is_preset);
+        self.tint_custom.set_checked(custom.is_some());
+        let custom_text = match custom {
+            Some([r, g, b]) => format!("自定义颜色（#{r:02X}{g:02X}{b:02X}）…"),
+            None => "自定义颜色（色盘）…".to_string(),
+        };
+        self.tint_custom.set_text(&custom_text);
         self.speed_move_value
             .set_text(format!("全局：{:.0} pt/s", config.move_speed));
         let follow = config.effective_follow_speed();
@@ -249,6 +261,22 @@ pub fn build_tray(
         tints_root.append(&item)?;
         tint_items.push((value, item));
     }
+    tints_root.append(&PredefinedMenuItem::separator())?;
+    let is_preset = TINT_PRESETS.iter().any(|(_, value)| *value == config.tint);
+    let custom = config.tint.filter(|_| !is_preset);
+    let custom_text = match custom {
+        Some([r, g, b]) => format!("自定义颜色（#{r:02X}{g:02X}{b:02X}）…"),
+        None => "自定义颜色（色盘）…".to_string(),
+    };
+    let tint_custom =
+        CheckMenuItem::with_id(MENU_TINT_PICKER, &custom_text, true, custom.is_some(), None);
+    let tint_hex = MenuItem::with_id(MENU_TINT_HEX, "输入十六进制色值…", true, None);
+    let tint_hint = MenuItem::new("色盘关闭后应用", false, None);
+    tints_root.append(&tint_custom)?;
+    tints_root.append(&tint_hex)?;
+    tints_root.append(&tint_hint)?;
+    keep_items.push(tint_hex.clone());
+    keep_items.push(tint_hint);
     menu.append(&tints_root)?;
     keep_submenus.push(tints_root);
 
@@ -552,6 +580,8 @@ pub fn build_tray(
         form_items,
         scale_items,
         tint_items,
+        tint_custom,
+        tint_hex,
         speed_move_value,
         speed_follow_value,
         speed_idle_value,

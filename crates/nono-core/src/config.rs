@@ -17,7 +17,7 @@ fn serialize_opacity<S: serde::Serializer>(value: &f32, serializer: S) -> Result
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Config {
-    /// Active form (1, 2 or 3).
+    /// Active form (1–5).
     pub form: u8,
     /// User-facing zoom.  Asset canvases are rendered 1:1 * scale * dpi.
     pub scale: f32,
@@ -172,7 +172,7 @@ impl Config {
     pub fn sanitize(&mut self) {
         self.scale = self.scale.clamp(0.5, 3.0);
         self.volume = self.volume.clamp(0.0, 1.0);
-        if !(1..=4).contains(&self.form) {
+        if !(1..=5).contains(&self.form) {
             self.form = 1;
         }
         self.roam_min_secs = self.roam_min_secs.clamp(2.0, 120.0);
