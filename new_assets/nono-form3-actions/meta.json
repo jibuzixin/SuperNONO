@@ -1,0 +1,143 @@
+{
+  "name": "nono-form3-actions",
+  "form": 3,
+  "description": "超能 NONO 形态 3 的 7 个动作动画（Lottie）",
+  "source": "NONO形态与动作_20261021/资源/nono/super/action/{2..7}_3.swf",
+  "frameRate": 25,
+  "walkCrop": [
+    145.6499,
+    134.9556
+  ],
+  "walkPetAnchor": [
+    39.4001,
+    71.9944
+  ],
+  "actions": [
+    {
+      "id": 2,
+      "slug": "boot",
+      "name": "开机",
+      "file": "nono3_action_boot.json",
+      "frames": 84,
+      "layers": 58,
+      "bytes": 162616,
+      "crop": [
+        225.6,
+        104.7
+      ],
+      "canvas": [
+        103,
+        113
+      ],
+      "petAnchor": [
+        49.8534,
+        95.745
+      ]
+    },
+    {
+      "id": 3,
+      "slug": "shutdown",
+      "name": "关机",
+      "file": "nono3_action_shutdown.json",
+      "frames": 63,
+      "layers": 49,
+      "bytes": 95509,
+      "crop": [
+        236.05,
+        128.45
+      ],
+      "canvas": [
+        77,
+        80
+      ],
+      "petAnchor": [
+        39.4001,
+        71.9944
+      ]
+    },
+    {
+      "id": 4,
+      "slug": "ball",
+      "name": "玩球",
+      "file": "nono3_action_ball.json",
+      "frames": 164,
+      "layers": 136,
+      "bytes": 412678,
+      "crop": [
+        191.45,
+        -72.55
+      ],
+      "canvas": [
+        503,
+        297
+      ],
+      "petAnchor": [
+        50.9,
+        286.55
+      ]
+    },
+    {
+      "id": 5,
+      "slug": "battery",
+      "name": "吃电池",
+      "file": "nono3_action_battery.json",
+      "frames": 275,
+      "layers": 84,
+      "bytes": 2533370,
+      "crop": [
+        202.2,
+        -97.0
+      ],
+      "canvas": [
+        298,
+        325
+      ],
+      "petAnchor": [
+        39.4001,
+        309.6315
+      ]
+    },
+    {
+      "id": 6,
+      "slug": "summon",
+      "name": "召唤",
+      "file": "nono3_action_summon.json",
+      "frames": 100,
+      "layers": 60,
+      "bytes": 431719,
+      "crop": [
+        123.05,
+        100.95
+      ],
+      "canvas": [
+        410,
+        205
+      ],
+      "petAnchor": [
+        100.2774,
+        143.0334
+      ]
+    },
+    {
+      "id": 7,
+      "slug": "cube",
+      "name": "玩魔方",
+      "file": "nono3_action_cube.json",
+      "frames": 262,
+      "layers": 151,
+      "bytes": 3087301,
+      "crop": [
+        77.75,
+        92.95
+      ],
+      "canvas": [
+        175,
+        267
+      ],
+      "petAnchor": [
+        80.85,
+        216.0
+      ]
+    }
+  ]
+}

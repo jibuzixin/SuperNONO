@@ -1,0 +1,164 @@
+{
+  "name": "nono-form2-actions",
+  "form": 2,
+  "description": "超能 NONO 形态 2 的 7 个动作动画（Lottie）",
+  "source": "NONO形态与动作_20261021/资源/nono/super/action/{1..7}_2.swf",
+  "frameRate": 25,
+  "walkCrop": [
+    153.5345,
+    166.5275
+  ],
+  "walkPetAnchor": [
+    37.0155,
+    76.5725
+  ],
+  "actions": [
+    {
+      "id": 1,
+      "slug": "charge",
+      "name": "充电",
+      "file": "nono2_action_charge.json",
+      "frames": 1,
+      "layers": 8,
+      "bytes": 18519,
+      "crop": [
+        238.45,
+        123.9
+      ],
+      "canvas": [
+        76,
+        83
+      ],
+      "petAnchor": [
+        37.0155,
+        76.5725
+      ]
+    },
+    {
+      "id": 2,
+      "slug": "boot",
+      "name": "开机",
+      "file": "nono2_action_boot.json",
+      "frames": 91,
+      "layers": 64,
+      "bytes": 256680,
+      "crop": [
+        238.45,
+        123.9
+      ],
+      "canvas": [
+        76,
+        86
+      ],
+      "petAnchor": [
+        37.0155,
+        76.5725
+      ]
+    },
+    {
+      "id": 3,
+      "slug": "shutdown",
+      "name": "关机",
+      "file": "nono2_action_shutdown.json",
+      "frames": 61,
+      "layers": 43,
+      "bytes": 73795,
+      "crop": [
+        238.45,
+        123.9
+      ],
+      "canvas": [
+        76,
+        83
+      ],
+      "petAnchor": [
+        37.0155,
+        76.5725
+      ]
+    },
+    {
+      "id": 4,
+      "slug": "ball",
+      "name": "玩球",
+      "file": "nono2_action_ball.json",
+      "frames": 124,
+      "layers": 107,
+      "bytes": 547693,
+      "crop": [
+        -294.6,
+        -167.95
+      ],
+      "canvas": [
+        877,
+        480
+      ],
+      "petAnchor": [
+        484.1196,
+        472.15
+      ]
+    },
+    {
+      "id": 5,
+      "slug": "battery",
+      "name": "吃电池",
+      "file": "nono2_action_battery.json",
+      "frames": 219,
+      "layers": 103,
+      "bytes": 2145446,
+      "crop": [
+        433.05,
+        188.35
+      ],
+      "canvas": [
+        314,
+        145
+      ],
+      "petAnchor": [
+        75.7458,
+        123.2191
+      ]
+    },
+    {
+      "id": 6,
+      "slug": "summon",
+      "name": "召唤",
+      "file": "nono2_action_summon.json",
+      "frames": 149,
+      "layers": 277,
+      "bytes": 2299467,
+      "crop": [
+        161.25,
+        136.25
+      ],
+      "canvas": [
+        346,
+        157
+      ],
+      "petAnchor": [
+        37.0155,
+        146.25
+      ]
+    },
+    {
+      "id": 7,
+      "slug": "cube",
+      "name": "玩魔方",
+      "file": "nono2_action_cube.json",
+      "frames": 250,
+      "layers": 382,
+      "bytes": 4999553,
+      "crop": [
+        127.9,
+        75.65
+      ],
+      "canvas": [
+        247,
+        252
+      ],
+      "petAnchor": [
+        67.55,
+        224.8
+      ]
+    }
+  ]
+}

@@ -1,0 +1,250 @@
+{
+  "name": "nono-form3-walk",
+  "form": 3,
+  "description": "超能 NONO 形态 3 八方向循环走路动画（Lottie）",
+  "source": "NONO形态与动作_20261021/资源/nono/super/nono_3.swf",
+  "frameRate": 25,
+  "audioManifest": "assets/nono-sounds/manifest.json",
+  "directions": [
+    {
+      "dir": "down",
+      "file": "nono3_down.json",
+      "bytes": 109564,
+      "sha256": "0b556e4944e3c2c21ed57c1580dbb33ed32f53bd3903cfa3966007ed19dde106",
+      "frames": 16,
+      "canvas": [
+        77,
+        80
+      ],
+      "layers": 21,
+      "contentBBox": [
+        5.69,
+        0.59,
+        72.81,
+        79.44
+      ],
+      "audio": {
+        "soundId": null,
+        "file": null,
+        "status": "none",
+        "trigger": null,
+        "loops": 0,
+        "loopNote": "走路没有音效（客户端只做 gotoAndStop(direction)）",
+        "stop": null,
+        "playAs3": null,
+        "playWeb": null,
+        "source": "客户端 NonoModel.as 的走路分支不涉及 Sound"
+      }
+    },
+    {
+      "dir": "leftdown",
+      "file": "nono3_leftdown.json",
+      "bytes": 146172,
+      "sha256": "ce632ecded7813bfaaae90a0519b071d12abd5dcaa6d1b9530cfcbeb3a02f2f9",
+      "frames": 16,
+      "canvas": [
+        77,
+        80
+      ],
+      "layers": 60,
+      "contentBBox": [
+        10.56,
+        4.49,
+        71.05,
+        79.44
+      ],
+      "audio": {
+        "soundId": null,
+        "file": null,
+        "status": "none",
+        "trigger": null,
+        "loops": 0,
+        "loopNote": "走路没有音效（客户端只做 gotoAndStop(direction)）",
+        "stop": null,
+        "playAs3": null,
+        "playWeb": null,
+        "source": "客户端 NonoModel.as 的走路分支不涉及 Sound"
+      }
+    },
+    {
+      "dir": "left",
+      "file": "nono3_left.json",
+      "bytes": 146164,
+      "sha256": "65a4766edc59e96d6e5a3604511467497a803cd2773354174181a022315c8d3b",
+      "frames": 16,
+      "canvas": [
+        77,
+        80
+      ],
+      "layers": 60,
+      "contentBBox": [
+        10.56,
+        4.49,
+        71.05,
+        79.44
+      ],
+      "audio": {
+        "soundId": null,
+        "file": null,
+        "status": "none",
+        "trigger": null,
+        "loops": 0,
+        "loopNote": "走路没有音效（客户端只做 gotoAndStop(direction)）",
+        "stop": null,
+        "playAs3": null,
+        "playWeb": null,
+        "source": "客户端 NonoModel.as 的走路分支不涉及 Sound"
+      }
+    },
+    {
+      "dir": "leftup",
+      "file": "nono3_leftup.json",
+      "bytes": 132447,
+      "sha256": "a1c91a18e45ec3a3487d1442b4dc2472a02b7b38c29c4443d872e525e9bd6e89",
+      "frames": 16,
+      "canvas": [
+        77,
+        80
+      ],
+      "layers": 94,
+      "contentBBox": [
+        6.02,
+        12.34,
+        70.43,
+        79.44
+      ],
+      "audio": {
+        "soundId": null,
+        "file": null,
+        "status": "none",
+        "trigger": null,
+        "loops": 0,
+        "loopNote": "走路没有音效（客户端只做 gotoAndStop(direction)）",
+        "stop": null,
+        "playAs3": null,
+        "playWeb": null,
+        "source": "客户端 NonoModel.as 的走路分支不涉及 Sound"
+      }
+    },
+    {
+      "dir": "up",
+      "file": "nono3_up.json",
+      "bytes": 69986,
+      "sha256": "a8f65ac0d3077ccbf15f644a57f3ea6b88e3de4f18c3cbf8df329dc7576629f7",
+      "frames": 16,
+      "canvas": [
+        77,
+        80
+      ],
+      "layers": 15,
+      "contentBBox": [
+        1.34,
+        13.74,
+        74.86,
+        79.44
+      ],
+      "audio": {
+        "soundId": null,
+        "file": null,
+        "status": "none",
+        "trigger": null,
+        "loops": 0,
+        "loopNote": "走路没有音效（客户端只做 gotoAndStop(direction)）",
+        "stop": null,
+        "playAs3": null,
+        "playWeb": null,
+        "source": "客户端 NonoModel.as 的走路分支不涉及 Sound"
+      }
+    },
+    {
+      "dir": "rightup",
+      "file": "nono3_rightup.json",
+      "bytes": 132245,
+      "sha256": "af722938e5fca7a87056e11890ba91c2c2a02ef1fd19ac6adab9db37258ad506",
+      "frames": 16,
+      "canvas": [
+        77,
+        80
+      ],
+      "layers": 94,
+      "contentBBox": [
+        8.07,
+        12.34,
+        71.48,
+        79.44
+      ],
+      "audio": {
+        "soundId": null,
+        "file": null,
+        "status": "none",
+        "trigger": null,
+        "loops": 0,
+        "loopNote": "走路没有音效（客户端只做 gotoAndStop(direction)）",
+        "stop": null,
+        "playAs3": null,
+        "playWeb": null,
+        "source": "客户端 NonoModel.as 的走路分支不涉及 Sound"
+      }
+    },
+    {
+      "dir": "right",
+      "file": "nono3_right.json",
+      "bytes": 145435,
+      "sha256": "85e46779363e4593ba3aeddaf9564cfc87e8489da63bfd2a102dfbb2e2a40614",
+      "frames": 16,
+      "canvas": [
+        77,
+        80
+      ],
+      "layers": 60,
+      "contentBBox": [
+        6.85,
+        4.49,
+        67.34,
+        79.44
+      ],
+      "audio": {
+        "soundId": null,
+        "file": null,
+        "status": "none",
+        "trigger": null,
+        "loops": 0,
+        "loopNote": "走路没有音效（客户端只做 gotoAndStop(direction)）",
+        "stop": null,
+        "playAs3": null,
+        "playWeb": null,
+        "source": "客户端 NonoModel.as 的走路分支不涉及 Sound"
+      }
+    },
+    {
+      "dir": "rightdown",
+      "file": "nono3_rightdown.json",
+      "bytes": 145443,
+      "sha256": "40a1b36bb3491e5ae65cb4630b84d7120a9606ca74be6590d95c28d67735b4a7",
+      "frames": 16,
+      "canvas": [
+        77,
+        80
+      ],
+      "layers": 60,
+      "contentBBox": [
+        6.85,
+        4.49,
+        67.34,
+        79.44
+      ],
+      "audio": {
+        "soundId": null,
+        "file": null,
+        "status": "none",
+        "trigger": null,
+        "loops": 0,
+        "loopNote": "走路没有音效（客户端只做 gotoAndStop(direction)）",
+        "stop": null,
+        "playAs3": null,
+        "playWeb": null,
+        "source": "客户端 NonoModel.as 的走路分支不涉及 Sound"
+      }
+    }
+  ]
+}

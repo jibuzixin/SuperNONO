@@ -1,0 +1,53 @@
+# 资产变更日志
+
+本文件记录 `assets/` 下矢量 Lottie 资产的结构性变更。
+版本号见 [`asset-version.json`](asset-version.json)。
+
+## 1.2.0 — 2026-11-09
+
+按 App 侧《GLOW_TAGGING_SPEC.md》重构辉光标注，让 `nono.glow` 与 `nono.glowShapes`
+两条信息都能真正驱动运行时辉光，全形态统一。
+
+### 变更
+
+- **逐层 `nono.glow` 成为运行时唯一入口**：源 SWF 的 GLOW 解析结果落到对应图层上，
+  每个有辉光的图层都带一份 `nono.glow`（`color` / `blur` / `strength` / `baked` 等）。
+- **`nono.shape` 统一为源 SWF character id**：每个图层都写；此前只有被人工标过身份的
+  层才有 `nono` 块，运行时兜底查表无从查起（形态 4/5 的 `nono.shape` 与
+  `glowShapes` 是两套编号，命中率只有 8 / 2）。
+- **顶层 `nono.glowShapes` 降级为源事实表**：按**该资产里真实存在的形状**过滤
+  （同一 SWF 里其它时间轴用的形状不再混进来），每条都带 `baked`。
+- **`baked` 语义判定收紧**：只有资产内确实存在同 sid 的 `glowN` / `glowmorphN`
+  同心描边副本层（光晕已画进画面）才写 `baked:true`；运行时据此跳过，不会过曝。
+- **形态 3 的源红色辉光直接写最终显示色** `[50,254,254]`，不再依赖运行时的纯红替换。
+
+### 覆盖范围
+
+- 形态 1–5（超能）、普通 NONO、至尊年费 NONO：共 122 个资产。
+- 飞行器 1/2/3/4 与通用飞行器：共 40 个资产（同样补 `nono.shape` 与 `baked`，
+  辉光参数逐条核对过源 XML，未改动数值）。
+- 合计 162 个资产。
+
+### 验证
+
+- 辉光审计（复刻 App 侧 `nono --check` 的 glow audit 口径）：**警告 0 条**。
+- 逐动画统计见 [`GLOW_STATS.md`](GLOW_STATS.md)。
+- 改动面核验：148 个变更资产里，**除辉光契约字段（`nono.glow` / `nono.shape` /
+  顶层 `glowShapes`）外没有任何差异** —— 几何、图层顺序、时间轴、`nono.roles`
+  全部逐字段一致；`nono.dye` 染色节点数与取值**零变化**。
+- manifest 仅 `sha256` / `bytes` 变化，几何字段零变化。
+
+### 备注
+
+三类容易误判的资产，均已实测核对：
+
+1. **辉光全部已烘焙（8 个）**：形态 1 的 `boot` / `charge` / `shutdown` / `summon`，
+   形态 4 的 `boot` / `shutdown` / `summon`，普通 NONO 的 `boot`。光晕已由转换器
+   画进画面，运行时按 `baked` 跳过，**辉光 pass 数本来就是 0**，不是缺陷。
+2. **只有人工辉光、顶层表为空（15 个）**：形态 1 的 8 个走路、形态 2 的 `shutdown`
+   与 `happy`、形态 5 的 `ball` 与 4 个表情。这些动画源 SWF 里没有 `GLOWFILTER`，
+   辉光来自人工标注，走**逐层入口**发光，不依赖顶层表。
+3. **表与逐层都为空（34 个）**：29 个源 SWF 里确实没有 `GLOWFILTER`（形态 1 的
+   `ball` 与 4 个表情、形态 3 的 `boot` / `shutdown`、普通 NONO 10 个、至尊年费 17 个）；
+   另 5 个是普通 NONO 走路的 5 个方向 —— 源 SWF 有辉光，但该方向时间轴没有用到
+   那些形状。**都不是漏标**。

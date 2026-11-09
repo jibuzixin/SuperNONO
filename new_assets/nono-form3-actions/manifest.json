@@ -1,0 +1,284 @@
+{
+  "name": "nono-form3-actions",
+  "form": 3,
+  "description": "超能 NONO 形态 3 的 6 个动作动画（Lottie）",
+  "source": "NONO形态与动作_20261021/资源/nono/super/action/{2..7}_3.swf",
+  "frameRate": 25,
+  "walkPetAnchor": [
+    39.4001,
+    71.9944
+  ],
+  "audioManifest": "assets/nono-sounds/manifest.json",
+  "actions": [
+    {
+      "id": 2,
+      "slug": "boot",
+      "name": "开机",
+      "file": "nono3_action_boot.json",
+      "bytes": 169240,
+      "sha256": "7d98829173e12c6e6b39e61f463558bad1ed5028ae0101156719b3b9068f6bc7",
+      "frames": 84,
+      "canvas": [
+        103,
+        113
+      ],
+      "layers": 58,
+      "crop": [
+        225.6,
+        104.7
+      ],
+      "petAnchor": [
+        49.8534,
+        95.745
+      ],
+      "contentBBox": [
+        0.08,
+        0.0,
+        102.08,
+        111.76
+      ],
+      "playback": {
+        "autoEnd": 1,
+        "loop": false,
+        "loopNote": "所有动作的动画都播一遍停在末帧（SWF 的 gotoAndPlay 只播一遍）。autoEnd=1：末帧派发 PLAY_COMPLETE，切回走路并清理动作。"
+      },
+      "audio": {
+        "soundId": "action_boot_s3",
+        "file": "nono-sounds/sounds/action_boot_s3.mp3",
+        "status": "ok",
+        "trigger": "动作开始播放时（与动画 goToAndPlay(0) 同时，客户端在 gotoAndPlay 之后调用 play）",
+        "loops": 1,
+        "loopNote": "播 1 次",
+        "stop": "下一个动作/表情开始前停止（客户端 clearActionMC() 里 _sc.stop()）",
+        "playAs3": "_sc = _sound.play(0, 1);   // Sound 对象来自 SWF 内嵌的 sou 类",
+        "playWeb": "const a = new Audio(url); a.loop = false; a.play();",
+        "source": "SWF 内嵌 sou 类（super/action/2_3.swf）"
+      }
+    },
+    {
+      "id": 3,
+      "slug": "shutdown",
+      "name": "关机",
+      "file": "nono3_action_shutdown.json",
+      "bytes": 100477,
+      "sha256": "7feac7bb0161c7c57b31c35471d38df06938e72cead6583e064e43d69a615d14",
+      "frames": 63,
+      "canvas": [
+        77,
+        80
+      ],
+      "layers": 49,
+      "crop": [
+        236.05,
+        128.45
+      ],
+      "petAnchor": [
+        39.4001,
+        71.9944
+      ],
+      "contentBBox": [
+        5.95,
+        2.32,
+        72.25,
+        79.46
+      ],
+      "playback": {
+        "autoEnd": 0,
+        "loop": false,
+        "loopNote": "所有动作的动画都播一遍停在末帧（SWF 的 gotoAndPlay 只播一遍）。autoEnd=0：客户端在末帧不派发 PLAY_COMPLETE、不切回走路，动作停在末帧保持占用状态。"
+      },
+      "audio": {
+        "soundId": "action_shutdown_s3",
+        "file": "nono-sounds/sounds/action_shutdown_s3.mp3",
+        "status": "ok",
+        "trigger": "动作开始播放时（与动画 goToAndPlay(0) 同时，客户端在 gotoAndPlay 之后调用 play）",
+        "loops": 1,
+        "loopNote": "播 1 次",
+        "stop": "下一个动作/表情开始前停止（客户端 clearActionMC() 里 _sc.stop()）",
+        "playAs3": "_sc = _sound.play(0, 1);   // Sound 对象来自 SWF 内嵌的 sou 类",
+        "playWeb": "const a = new Audio(url); a.loop = false; a.play();",
+        "source": "SWF 内嵌 sou 类（super/action/3_3.swf）"
+      }
+    },
+    {
+      "id": 4,
+      "slug": "ball",
+      "name": "玩球",
+      "file": "nono3_action_ball.json",
+      "bytes": 437504,
+      "sha256": "82e26eef4717aa8ca2fa6c72d55228a7e4434956d228a4e36b7046e55980788f",
+      "frames": 164,
+      "canvas": [
+        503,
+        297
+      ],
+      "layers": 136,
+      "crop": [
+        191.45,
+        -72.55
+      ],
+      "petAnchor": [
+        50.9,
+        286.55
+      ],
+      "contentBBox": [
+        0.0,
+        0.55,
+        499.4,
+        293.77
+      ],
+      "playback": {
+        "autoEnd": 1,
+        "loop": false,
+        "loopNote": "所有动作的动画都播一遍停在末帧（SWF 的 gotoAndPlay 只播一遍）。autoEnd=1：末帧派发 PLAY_COMPLETE，切回走路并清理动作。"
+      },
+      "audio": {
+        "soundId": "action_ball_s3",
+        "file": "nono-sounds/sounds/action_ball_s3.mp3",
+        "status": "ok",
+        "trigger": "动作开始播放时（与动画 goToAndPlay(0) 同时，客户端在 gotoAndPlay 之后调用 play）",
+        "loops": 1,
+        "loopNote": "播 1 次",
+        "stop": "下一个动作/表情开始前停止（客户端 clearActionMC() 里 _sc.stop()）",
+        "playAs3": "_sc = _sound.play(0, 1);   // Sound 对象来自 SWF 内嵌的 sou 类",
+        "playWeb": "const a = new Audio(url); a.loop = false; a.play();",
+        "source": "SWF 内嵌 sou 类（super/action/4_3.swf）"
+      }
+    },
+    {
+      "id": 5,
+      "slug": "battery",
+      "name": "吃电池",
+      "file": "nono3_action_battery.json",
+      "bytes": 2550942,
+      "sha256": "c3c509752a72b2a172e2e6a8484da44093b689b519f1e04d187ef1df23829a3f",
+      "frames": 275,
+      "canvas": [
+        298,
+        325
+      ],
+      "layers": 84,
+      "crop": [
+        202.2,
+        -97.0
+      ],
+      "petAnchor": [
+        39.4001,
+        309.6315
+      ],
+      "contentBBox": [
+        5.69,
+        2.02,
+        297.26,
+        319.94
+      ],
+      "playback": {
+        "autoEnd": 1,
+        "loop": false,
+        "loopNote": "所有动作的动画都播一遍停在末帧（SWF 的 gotoAndPlay 只播一遍）。autoEnd=1：末帧派发 PLAY_COMPLETE，切回走路并清理动作。"
+      },
+      "audio": {
+        "soundId": "action_battery_s3",
+        "file": "nono-sounds/sounds/action_battery_s3.mp3",
+        "status": "ok",
+        "trigger": "动作开始播放时（与动画 goToAndPlay(0) 同时，客户端在 gotoAndPlay 之后调用 play）",
+        "loops": 1,
+        "loopNote": "播 1 次",
+        "stop": "下一个动作/表情开始前停止（客户端 clearActionMC() 里 _sc.stop()）",
+        "playAs3": "_sc = _sound.play(0, 1);   // Sound 对象来自 SWF 内嵌的 sou 类",
+        "playWeb": "const a = new Audio(url); a.loop = false; a.play();",
+        "source": "SWF 内嵌 sou 类（super/action/5_3.swf）"
+      }
+    },
+    {
+      "id": 6,
+      "slug": "summon",
+      "name": "召唤",
+      "file": "nono3_action_summon.json",
+      "bytes": 445731,
+      "sha256": "0e8da82e875c160dcfe76378eaa478ddfb3daaf8fca0c7d925f538fb9fcfd7f7",
+      "frames": 100,
+      "canvas": [
+        410,
+        205
+      ],
+      "layers": 60,
+      "crop": [
+        123.05,
+        100.95
+      ],
+      "petAnchor": [
+        100.2774,
+        143.0334
+      ],
+      "contentBBox": [
+        0.15,
+        0.02,
+        409.05,
+        204.09
+      ],
+      "playback": {
+        "autoEnd": 1,
+        "loop": false,
+        "loopNote": "所有动作的动画都播一遍停在末帧（SWF 的 gotoAndPlay 只播一遍）。autoEnd=1：末帧派发 PLAY_COMPLETE，切回走路并清理动作。"
+      },
+      "audio": {
+        "soundId": "action_summon_s3",
+        "file": "nono-sounds/sounds/action_summon_s3.mp3",
+        "status": "ok",
+        "trigger": "动作开始播放时（与动画 goToAndPlay(0) 同时，客户端在 gotoAndPlay 之后调用 play）",
+        "loops": 1,
+        "loopNote": "播 1 次",
+        "stop": "下一个动作/表情开始前停止（客户端 clearActionMC() 里 _sc.stop()）",
+        "playAs3": "_sc = _sound.play(0, 1);   // Sound 对象来自 SWF 内嵌的 sou 类",
+        "playWeb": "const a = new Audio(url); a.loop = false; a.play();",
+        "source": "SWF 内嵌 sou 类（super/action/6_3.swf）"
+      }
+    },
+    {
+      "id": 7,
+      "slug": "cube",
+      "name": "玩魔方",
+      "file": "nono3_action_cube.json",
+      "bytes": 4016904,
+      "sha256": "273a003b5f7495ef1b5261f82864f50a539008151ba80f30949fc501cc3ace2b",
+      "frames": 262,
+      "canvas": [
+        175,
+        267
+      ],
+      "layers": 152,
+      "crop": [
+        77.75,
+        92.95
+      ],
+      "petAnchor": [
+        80.85,
+        216.0
+      ],
+      "contentBBox": [
+        0.0,
+        0.0,
+        174.05,
+        266.6
+      ],
+      "playback": {
+        "autoEnd": 1,
+        "loop": false,
+        "loopNote": "所有动作的动画都播一遍停在末帧（SWF 的 gotoAndPlay 只播一遍）。autoEnd=1：末帧派发 PLAY_COMPLETE，切回走路并清理动作。"
+      },
+      "audio": {
+        "soundId": "action_cube_s3",
+        "file": "nono-sounds/sounds/action_cube_s3.mp3",
+        "status": "ok",
+        "trigger": "动作开始播放时（与动画 goToAndPlay(0) 同时，客户端在 gotoAndPlay 之后调用 play）",
+        "loops": 1,
+        "loopNote": "播 1 次",
+        "stop": "下一个动作/表情开始前停止（客户端 clearActionMC() 里 _sc.stop()）",
+        "playAs3": "_sc = _sound.play(0, 1);   // Sound 对象来自 SWF 内嵌的 sou 类",
+        "playWeb": "const a = new Audio(url); a.loop = false; a.play();",
+        "source": "SWF 内嵌 sou 类（super/action/7_3.swf）"
+      }
+    }
+  ]
+}
