@@ -2240,10 +2240,20 @@ impl App {
                     self.config.glow,
                     self.config.glow_sigma,
                     self.config.glow_alpha,
-                ) != (loaded.glow, loaded.glow_sigma, loaded.glow_alpha);
+                    self.config.glow_sigma_form5,
+                    self.config.glow_alpha_form5,
+                ) != (
+                    loaded.glow,
+                    loaded.glow_sigma,
+                    loaded.glow_alpha,
+                    loaded.glow_sigma_form5,
+                    loaded.glow_alpha_form5,
+                );
                 self.config.glow = loaded.glow;
                 self.config.glow_sigma = loaded.glow_sigma;
                 self.config.glow_alpha = loaded.glow_alpha;
+                self.config.glow_sigma_form5 = loaded.glow_sigma_form5;
+                self.config.glow_alpha_form5 = loaded.glow_alpha_form5;
                 self.config.summon_animation = loaded.summon_animation;
                 self.config.start_at_center = loaded.start_at_center;
                 self.config_mtime = Self::config_mtime(&self.config_path);

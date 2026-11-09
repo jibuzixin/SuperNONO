@@ -104,6 +104,9 @@ pub struct AnimationSpec {
     pub content_bbox: Option<(f32, f32, f32, f32)>,
     /// Fade the runtime glow out between these two frames (e.g. summon tail).
     pub glow_fade: Option<[f32; 2]>,
+    /// Soften the canvas-edge clip by fading this many pixels (reduces the
+    /// hard rectangular border some source clips have).
+    pub feather: Option<u32>,
     /// Human-readable label (Chinese name or direction).
     pub label: String,
 }
@@ -250,6 +253,8 @@ struct PlacementDef {
     #[serde(default)]
     glow_fade: Option<[f32; 2]>,
     #[serde(default)]
+    feather: Option<u32>,
+    #[serde(default)]
     offset: [f32; 2],
     #[serde(default)]
     offset_start: Option<[f32; 2]>,
@@ -264,6 +269,7 @@ struct Tuning {
     placement: Placement,
     frames: Option<u32>,
     glow_fade: Option<[f32; 2]>,
+    feather: Option<u32>,
 }
 
 fn one() -> f32 {
@@ -394,6 +400,7 @@ impl Catalog {
             placement: self.tuning_for(&id).placement,
             play_frames: self.tuning_for(&id).frames,
             glow_fade: self.tuning_for(&id).glow_fade,
+            feather: self.tuning_for(&id).feather,
             content_bbox: def.content_bbox.map(|b| (b[0], b[1], b[2], b[3])),
             label: format!("走路·{key}"),
         })
@@ -434,6 +441,7 @@ impl Catalog {
             placement: self.tuning_for(&id).placement,
             play_frames: self.tuning_for(&id).frames,
             glow_fade: self.tuning_for(&id).glow_fade,
+            feather: self.tuning_for(&id).feather,
             content_bbox: def.content_bbox.map(|b| (b[0], b[1], b[2], b[3])),
             label: def.name.clone(),
         })
@@ -468,6 +476,7 @@ impl Catalog {
             placement: self.tuning_for(&id).placement,
             play_frames: self.tuning_for(&id).frames,
             glow_fade: self.tuning_for(&id).glow_fade,
+            feather: self.tuning_for(&id).feather,
             content_bbox: def.content_bbox.map(|b| (b[0], b[1], b[2], b[3])),
             label: def.name.clone(),
         })
@@ -532,6 +541,7 @@ impl Catalog {
                     },
                     frames: def.frames,
                     glow_fade: def.glow_fade,
+                    feather: def.feather,
                 },
             );
         }

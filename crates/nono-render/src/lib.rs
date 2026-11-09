@@ -568,6 +568,7 @@ impl Renderer {
             release_allocator_memory();
         }
 
+        let feather = spec.feather.unwrap_or(0);
         let mut anim = self.engine().lottie_animation()?;
         if let Some(tint) = self.tint {
             // Recolour the tagged body layers in a copy of the Lottie JSON; the
