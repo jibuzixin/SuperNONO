@@ -83,23 +83,6 @@
     },
     "form4/action/cube": {
       "scale": 1.13
-    },
-    "form5/action/summon": {
-      "offset": [
-        102.16,
-        -133.33
-      ]
-    },
-    "form5/action/boot": {
-      "offset": [
-        -41.67,
-        -8.34
-      ],
-      "offset_start": [
-        -41.67,
-        -8.34
-      ],
-      "feather": 6
     }
   }
 }
