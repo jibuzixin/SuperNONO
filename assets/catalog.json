@@ -1,6 +1,6 @@
 {
   "format_version": 1,
-  "asset_version": "1.2.4",
+  "asset_version": "1.2.5",
   "name": "超能 NONO",
   "generated_by": "tools/build_catalog.py",
   "note": "运行时唯一素材入口；由各目录 manifest.json + meta.json 归一化生成，不要手改。",
@@ -2267,8 +2267,8 @@
           "frames": 108,
           "fps": 25,
           "pet_anchor": [
-            159.6164,
-            59.95
+            65.1,
+            203.8
           ],
           "content_bbox": [
             -0.02,

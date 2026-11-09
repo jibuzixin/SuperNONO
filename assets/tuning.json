@@ -2,6 +2,16 @@
   "format_version": 1,
   "note": "逐动画的渲染/播放修正。scale 以 petAnchor 为锚点缩放整张画布（窗口随同变化，放大不裁切）；offset 为画布单位平移（正 y 向下），会随 scale 一起换算；frames 用于裁掉源素材里重复或空白的尾巴。不改源 Lottie。",
   "animations": {
+    "form5/action/boot": {
+      "offset_start": [
+        0,
+        4.2
+      ],
+      "offset": [
+        0,
+        9.2
+      ]
+    },
     "form2/action/boot": {
       "offset": [
         0,
