@@ -49,6 +49,38 @@ pub enum RenderError {
 /// After a large action (e.g. the 877x480 form-2 ball) the Lottie scene and the
 /// pixel buffer are released, but the allocator keeps the pages.  macOS exposes
 /// a pressure-relief call for exactly this; on other platforms it is a no-op.
+/// Fades the outermost `feather` pixels to transparent so a hard canvas-edge
+/// clip reads as a soft border instead of a rectangle.
+fn soften_edges(buffer: &mut [u32], width: u32, height: u32, feather: u32) {
+    let (w, h) = (width as usize, height as usize);
+    let f = feather as usize;
+    if f == 0 || w == 0 || h == 0 {
+        return;
+    }
+    for y in 0..h {
+        let dy = y.min(h - 1 - y).min(f);
+        for x in 0..w {
+            let dx = x.min(w - 1 - x).min(f);
+            let d = dx.min(dy);
+            if d >= f {
+                continue;
+            }
+            let index = y * w + x;
+            let px = buffer[index];
+            let a = (px >> 24) & 0xff;
+            if a == 0 {
+                continue;
+            }
+            let mul = d as f32 / f as f32;
+            let na = (a as f32 * mul).round() as u32;
+            let r = (((px >> 16) & 0xff) as f32 * mul).round() as u32;
+            let g = (((px >> 8) & 0xff) as f32 * mul).round() as u32;
+            let b = ((px & 0xff) as f32 * mul).round() as u32;
+            buffer[index] = (na << 24) | (r << 16) | (g << 8) | b;
+        }
+    }
+}
+
 fn release_allocator_memory() {
     #[cfg(target_os = "macos")]
     unsafe {
@@ -674,6 +706,9 @@ impl Renderer {
         canvas.update()?;
         canvas.draw(true)?;
         canvas.sync()?;
+        if feather > 0 {
+            soften_edges(&mut self.buffer, self.width, self.height, feather);
+        }
         // Body-hit math wants the anchor in placement-scaled canvas units; the
         // glow margin is handled separately in `update_body_hit`.
         self.spec_anchor = (spec.pet_anchor.0 * k, spec.pet_anchor.1 * k);
@@ -1475,7 +1510,7 @@ mod tests {
                 _ => None,
             }
         }
-        let solid_before = first_static_fill(&before, Some("solid")).expect("a solid-tagged fill");
+        let _solid_before = first_static_fill(&before, Some("solid")).expect("a solid-tagged fill");
         let solid_after = first_static_fill(&after, Some("solid")).expect("a solid-tagged fill");
         assert_eq!(
             solid_after,
