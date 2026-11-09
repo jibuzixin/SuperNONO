@@ -119,7 +119,7 @@ impl Default for Config {
             glow: true,
             glow_sigma: 0.6,
             glow_alpha: 1.0,
-            glow_sigma_form5: Some(0.9),
+            glow_sigma_form5: Some(1.6),
             glow_alpha_form5: Some(1.4),
         }
     }

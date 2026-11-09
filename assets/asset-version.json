@@ -1,5 +1,7 @@
 {
-  "version": "1.2.0",
+  "version": "1.2.1",
   "date": "2026-11-09",
-  "note": "辉光标注重构：逐层 nono.glow 成为运行时唯一入口；顶层 nono.glowShapes 降级为按资产过滤的源事实表；nono.shape 统一为源 SWF character id。"
+  "note": "辉光标注重构：逐层 nono.glow 成为运行时唯一入口；顶层 nono.glowShapes 降级为按资产过滤的源事实表；nono.shape 统一为源 SWF character id。",
+  "released": "2026-11-09",
+  "notes": "形态2 资产回退到 1.1.0（用户确认调好的版本）；形态5 使用独立 glow 参数（sigma 1.6 / alpha 1.4）。"
 }
