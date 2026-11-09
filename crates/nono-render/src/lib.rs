@@ -89,6 +89,7 @@ pub struct Renderer {
     /// Transparent margin added on every side so the halo is not cut by the
     /// window edge (canvas units; 0 when the clip has no glow).
     glow_pad: f32,
+    glow_fade: Option<[f32; 2]>,
     engine: Box<Thorvg>,
 }
 
@@ -137,6 +138,7 @@ impl Renderer {
             glow: GlowSettings::default(),
             glow_passes: Vec::new(),
             glow_pad: 0.0,
+            glow_fade: None,
             engine,
         })
     }
@@ -276,6 +278,16 @@ impl Renderer {
         if self.glow_passes.is_empty() {
             return;
         }
+        let fade = match (self.glow_fade, frame) {
+            (Some([start, end]), Some(frame)) if end > start => {
+                let t = ((frame - start) / (end - start)).clamp(0.0, 1.0);
+                1.0 - t
+            }
+            _ => 1.0,
+        };
+        if fade <= 0.0 {
+            return;
+        }
         let Self {
             buffer,
             width,
@@ -307,6 +319,7 @@ impl Renderer {
                 pass.width as usize,
                 pass.height as usize,
                 pass.scale,
+                fade,
             );
         }
         tracing::trace!(sigma = ?glow_passes.iter().map(|p| p.sigma).collect::<Vec<_>>(),
@@ -498,6 +511,7 @@ impl Renderer {
         } else {
             Vec::new()
         };
+        self.glow_fade = spec.glow_fade;
         let max_blur = specs.iter().map(|s| s.blur).fold(0.0f32, f32::max);
         let pad_units = if max_blur > 0.0 {
             (max_blur * self.glow.sigma_scale * 2.6)

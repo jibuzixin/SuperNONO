@@ -622,8 +622,9 @@ pub(crate) fn composite_under(
     glow_width: usize,
     glow_height: usize,
     scale: f32,
+    alpha_mul: f32,
 ) {
-    if glow_width == 0 || glow_height == 0 || width == 0 || height == 0 {
+    if glow_width == 0 || glow_height == 0 || width == 0 || height == 0 || alpha_mul <= 0.0 {
         return;
     }
     let (mut min_x, mut min_y, mut max_x, mut max_y) = (glow_width, glow_height, 0usize, 0usize);
@@ -663,7 +664,7 @@ pub(crate) fn composite_under(
         for x in x0..x1 {
             let index = (y * width + x) * 4;
             sample(glow, glow_width, glow_height, x as f32 * scale, fy, &mut sample_rgba);
-            let glow_alpha = sample_rgba[3] / 255.0;
+            let glow_alpha = sample_rgba[3] / 255.0 * alpha_mul;
             if glow_alpha <= 0.0 {
                 continue;
             }
@@ -699,11 +700,11 @@ mod tests {
     fn glow_composites_under_the_character() {
         let mut opaque_white = vec![255u8, 255, 255, 255];
         let red = vec![255u8, 0, 0, 255];
-        composite_under(&mut opaque_white, 1, 1, &red, 1, 1, 1.0);
+        composite_under(&mut opaque_white, 1, 1, &red, 1, 1, 1.0, 1.0);
         assert_eq!(opaque_white, vec![255, 255, 255, 255], "opaque character hides the glow");
 
         let mut transparent = vec![0u8, 0, 0, 0];
-        composite_under(&mut transparent, 1, 1, &red, 1, 1, 1.0);
+        composite_under(&mut transparent, 1, 1, &red, 1, 1, 1.0, 1.0);
         assert_eq!(transparent, vec![255, 0, 0, 255], "glow shows where the character is clear");
     }
 

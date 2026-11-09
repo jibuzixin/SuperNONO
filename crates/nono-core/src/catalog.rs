@@ -102,6 +102,8 @@ pub struct AnimationSpec {
     pub play_frames: Option<u32>,
     /// Content bounding box in canvas units (left, top, right, bottom).
     pub content_bbox: Option<(f32, f32, f32, f32)>,
+    /// Fade the runtime glow out between these two frames (e.g. summon tail).
+    pub glow_fade: Option<[f32; 2]>,
     /// Human-readable label (Chinese name or direction).
     pub label: String,
 }
@@ -246,6 +248,8 @@ struct PlacementDef {
     #[serde(default = "one")]
     scale: f32,
     #[serde(default)]
+    glow_fade: Option<[f32; 2]>,
+    #[serde(default)]
     offset: [f32; 2],
     #[serde(default)]
     offset_start: Option<[f32; 2]>,
@@ -259,6 +263,7 @@ struct PlacementDef {
 struct Tuning {
     placement: Placement,
     frames: Option<u32>,
+    glow_fade: Option<[f32; 2]>,
 }
 
 fn one() -> f32 {
@@ -388,6 +393,7 @@ impl Catalog {
             after_action: None,
             placement: self.tuning_for(&id).placement,
             play_frames: self.tuning_for(&id).frames,
+            glow_fade: self.tuning_for(&id).glow_fade,
             content_bbox: def.content_bbox.map(|b| (b[0], b[1], b[2], b[3])),
             label: format!("走路·{key}"),
         })
@@ -427,6 +433,7 @@ impl Catalog {
             after_action: def.after_action.clone(),
             placement: self.tuning_for(&id).placement,
             play_frames: self.tuning_for(&id).frames,
+            glow_fade: self.tuning_for(&id).glow_fade,
             content_bbox: def.content_bbox.map(|b| (b[0], b[1], b[2], b[3])),
             label: def.name.clone(),
         })
@@ -460,6 +467,7 @@ impl Catalog {
             after_action: None,
             placement: self.tuning_for(&id).placement,
             play_frames: self.tuning_for(&id).frames,
+            glow_fade: self.tuning_for(&id).glow_fade,
             content_bbox: def.content_bbox.map(|b| (b[0], b[1], b[2], b[3])),
             label: def.name.clone(),
         })
@@ -523,6 +531,7 @@ impl Catalog {
                             .map(|o| (o[0], o[1])),
                     },
                     frames: def.frames,
+                    glow_fade: def.glow_fade,
                 },
             );
         }

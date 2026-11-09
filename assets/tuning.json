@@ -29,6 +29,10 @@
       "offset": [
         0,
         -6.2
+      ],
+      "glow_fade": [
+        60,
+        90
       ]
     },
     "form3/action/summon": {
