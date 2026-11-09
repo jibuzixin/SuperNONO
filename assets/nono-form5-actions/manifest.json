@@ -150,8 +150,8 @@
       "slug": "summon",
       "name": "召唤",
       "file": "nono5_action_summon.json",
-      "bytes": 2035840,
-      "sha256": "318323e6b007b538a2821f6991cfed34ae93d981f70f3ff830948c36bfa2c634",
+      "bytes": 2036301,
+      "sha256": "734157b61410e8d4977da9ef9152f89ed96bd268517a7a2fab223b01c0e21de9",
       "frames": 108,
       "canvas": [
         375,
