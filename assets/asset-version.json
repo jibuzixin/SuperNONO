@@ -1,7 +1,7 @@
 {
-  "version": "1.2.6",
+  "version": "1.2.7",
   "date": "2026-11-10",
-  "note": "形态5 四个表情锚点对齐待机；召唤漩涡补掉单帧空档。",
+  "note": "形态5 召唤漩涡的 baked 辉光描边改为运行时辉光，消除 CPU 渲染卡顿。",
   "released": "2026-11-10",
-  "notes": "形态5 表情 petAnchor 整体上移 25、左移 2 画布单位，本体与地面阴影同待机对齐；形态5 召唤 shape29–35/glow 的硬切透明度改为 3 帧淡出，消除第 30/38 帧漩涡消失。"
+  "notes": "形态5 召唤 shape29–35 的 6 组宽描边 glow 层在 CPU 上每帧约 300ms，导致实际只有 3fps；隐藏 baked glow 层、给主形状加 nono.glow（blur20/strength1），每帧降到约 10ms，25fps 稳定。光晕比原 baked 版本略锐。"
 }
