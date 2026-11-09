@@ -155,14 +155,44 @@ fn parse_glow(node: &JsonTree) -> Option<GlowParams> {
     })
 }
 
-fn read_meta(layer: &JsonTree) -> LayerMeta {
+fn key(node: &JsonTree) -> Option<String> {
+    match node {
+        JsonTree::String(value) => Some(value.clone()),
+        JsonTree::Number(value) => Some(value.to_string()),
+        _ => None,
+    }
+}
+
+/// The top-level `nono.glowShapes` table, keyed by the source shape id.
+///
+/// It is the fallback for assets whose glowing shapes were recorded only in
+/// the table (the older packs); per-layer `nono.glow` always wins.
+fn parse_glow_table(nono: &JsonTree) -> HashMap<String, GlowParams> {
+    let mut out = HashMap::new();
+    let Some(JsonTree::Object(table)) = nono.get("glowShapes") else {
+        return out;
+    };
+    for (shape, value) in table {
+        if let Some(params) = parse_glow(value) {
+            out.insert(shape.clone(), params);
+        }
+    }
+    out
+}
+
+fn read_meta(layer: &JsonTree, fallback: &HashMap<String, GlowParams>) -> LayerMeta {
     let nono = layer.get("nono");
+    let manual = nono.and_then(|n| n.get("glow")).and_then(parse_glow);
+    let glow = manual.or_else(|| {
+        let shape = nono.and_then(|n| n.get("shape")).and_then(key);
+        shape.and_then(|shape| fallback.get(&shape).cloned())
+    });
     LayerMeta {
         ind: layer.get("ind").and_then(|v| v.as_i64()),
         parent: layer.get("parent").and_then(|v| v.as_i64()),
         is_matte: layer.get("td").is_some_and(truthy),
         has_matte: layer.get("tt").is_some_and(truthy),
-        glow: nono.and_then(|n| n.get("glow")).and_then(parse_glow),
+        glow,
     }
 }
 
@@ -356,6 +386,8 @@ struct RawDoc<'a> {
     #[serde(borrow, default)]
     op: Option<&'a RawValue>,
     #[serde(borrow, default)]
+    nono: Option<&'a RawValue>,
+    #[serde(borrow, default)]
     w: Option<&'a RawValue>,
     #[serde(borrow, default)]
     h: Option<&'a RawValue>,
@@ -477,7 +509,9 @@ pub(crate) fn passes(
 ) -> Result<Vec<GlowPassSpec>, RenderError> {
     let bytes = std::fs::read(file)?;
     // Cheap gate: no labels and no legacy table, no parsing at all.
-    if !bytes.windows(6).any(|w| w == b"glow\":") {
+    if !bytes.windows(6).any(|w| w == b"glow\":")
+        && !bytes.windows(11).any(|w| w == b"glowShapes\"")
+    {
         return Ok(Vec::new());
     }
     let mtime = std::fs::metadata(file)
@@ -498,12 +532,18 @@ pub(crate) fn passes(
 
     let doc: RawDoc<'_> = serde_json::from_slice(&bytes)?;
 
+    let fallback = doc
+        .nono
+        .and_then(|raw| serde_json::from_str::<JsonTree>(raw.get()).ok())
+        .map(|nono| parse_glow_table(&nono))
+        .unwrap_or_default();
+
     // Two passes over the layers: metadata first (memory stays small), then the
     // kept ones are materialised.
     let mut metas = Vec::with_capacity(doc.layers.len());
     for layer in &doc.layers {
         match serde_json::from_str::<JsonTree>(layer.get()) {
-            Ok(tree) => metas.push(read_meta(&tree)),
+            Ok(tree) => metas.push(read_meta(&tree, &fallback)),
             Err(_) => metas.push(LayerMeta {
                 ind: None,
                 parent: None,
@@ -649,6 +689,32 @@ mod tests {
             .join("../../assets")
             .canonicalize()
             .expect("assets dir")
+    }
+
+    #[test]
+    fn glow_shapes_table_is_a_shape_id_fallback() {
+        let nono = serde_json::from_str::<JsonTree>(
+            r#"{"glowShapes":{"18":{"color":[0,255,255],"blur":10,"strength":1.0,"baked":false}}}"#,
+        )
+        .unwrap();
+        let fallback = parse_glow_table(&nono);
+        let layer = serde_json::from_str::<JsonTree>(
+            r#"{"ty":3,"ind":1,"nono":{"shape":"18","role":"accent"}}"#,
+        )
+        .unwrap();
+        let meta = read_meta(&layer, &fallback);
+        assert!(meta.glow.is_some(), "shape 18 should inherit the table");
+        assert_eq!(plan(&[meta]).len(), 1);
+
+        // A manual `nono.glow` keeps its own params instead of the table's.
+        let manual = serde_json::from_str::<JsonTree>(
+            r#"{"ty":3,"ind":2,"nono":{"shape":"18","glow":{"color":[0,255,0],"blur":2,"strength":2.0}}}"#,
+        )
+        .unwrap();
+        let meta = read_meta(&manual, &fallback);
+        let params = meta.glow.expect("manual glow");
+        assert!((params.strength - 2.0).abs() < 1e-6);
+        assert!((params.color[1] - 1.0).abs() < 1e-6);
     }
 
     #[test]
