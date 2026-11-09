@@ -2953,8 +2953,9 @@ fn audit_glow(catalog: &Catalog) -> usize {
                 );
             }
             if table_shapes == 0 && layers_glow == 0 {
-                warnings += 1;
-                println!("  glow warn {file}: no glowShapes and no per-layer nono.glow");
+                // Source has no GLOW filter at all (e.g. form1 ball/expressions,
+                // form3 boot/shutdown): nothing to light, not a warning.
+                println!("  glow note {file}: no glow data (source has no GLOW)");
             }
         }
         println!(

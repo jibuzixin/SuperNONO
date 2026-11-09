@@ -1,5 +1,5 @@
 {
-  "version": "1.1.0",
-  "released": "2026-11-09",
-  "notes": "新增形态5（8向走路/5动作/4表情）；形态1走路 accent 图层补 GLOW 标记；形态5 标签仅 body（阴影/耳根未标）；形态5 玩球结束朝下。"
+  "version": "1.2.0",
+  "date": "2026-11-09",
+  "note": "辉光标注重构：逐层 nono.glow 成为运行时唯一入口；顶层 nono.glowShapes 降级为按资产过滤的源事实表；nono.shape 统一为源 SWF character id。"
 }
