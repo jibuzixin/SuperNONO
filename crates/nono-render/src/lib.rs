@@ -138,6 +138,19 @@ struct GlowPass {
     opacity: u8,
 }
 
+/// Main-buffer origin (padding + placement offset) expressed in glow-buffer
+/// pixels.  Glow buffers can be smaller than the main buffer, so every term has
+/// to be multiplied by the pass scale; otherwise the halo drifts.
+fn glow_pass_translation(
+    base_px: f32,
+    applied: f32,
+    pixel_scale: f32,
+    placement_scale: f32,
+    glow_scale: f32,
+) -> f32 {
+    (base_px + applied * pixel_scale * placement_scale) * glow_scale
+}
+
 impl std::fmt::Debug for Renderer {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         f.debug_struct("Renderer")
@@ -337,10 +350,26 @@ impl Renderer {
             std::slice::from_raw_parts_mut(buffer.as_mut_ptr() as *mut u8, buffer.len() * 4)
         };
         for pass in glow_passes.iter_mut() {
-            let _ = pass.anim.picture_mut().translate(
-                base_px.0 + applied.0 * pixel_scale * placement_scale,
-                base_px.1 + applied.1 * pixel_scale * placement_scale,
+            // The glow pass may be rendered at a lower resolution than the main
+            // buffer (large canvases share a pixel budget).  Translations must
+            // be expressed in glow-buffer pixels, otherwise the halo drifts by
+            // `pad * (1 - glow_scale)` (very visible on the 651×651 form-5 cube).
+            let glow_scale = pass.scale.max(0.01);
+            let tx = glow_pass_translation(
+                base_px.0,
+                applied.0,
+                pixel_scale,
+                placement_scale,
+                glow_scale,
             );
+            let ty = glow_pass_translation(
+                base_px.1,
+                applied.1,
+                pixel_scale,
+                placement_scale,
+                glow_scale,
+            );
+            let _ = pass.anim.picture_mut().translate(tx, ty);
             if let Some(frame) = frame {
                 let _ = pass.anim.set_frame(frame);
             }
@@ -1852,5 +1881,15 @@ mod tests {
             after_total > 100 && after_total < before_total,
             "pet should remain ({before_total} -> {after_total})"
         );
+    }
+
+    #[test]
+    fn glow_translation_is_in_glow_buffer_pixels() {
+        // Full-resolution passes are unchanged.
+        assert!((glow_pass_translation(16.0, 0.0, 2.0, 1.0, 1.0) - 16.0).abs() < 1e-6);
+        assert!((glow_pass_translation(16.0, 4.0, 2.0, 1.0, 1.0) - 24.0).abs() < 1e-6);
+        // Downscaled passes must scale both the pad and the placement offset.
+        assert!((glow_pass_translation(16.0, 0.0, 2.0, 1.0, 0.5) - 8.0).abs() < 1e-6);
+        assert!((glow_pass_translation(16.0, 4.0, 2.0, 1.0, 0.5) - 12.0).abs() < 1e-6);
     }
 }
