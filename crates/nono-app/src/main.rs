@@ -560,7 +560,8 @@ impl App {
         self.audio.set_enabled(self.config.sound);
         self.audio.set_volume(self.config.volume);
         self.renderer.set_tint(self.config.tint);
-        self.renderer.set_glow(glow_settings(&self.config, self.state.form));
+        self.renderer
+            .set_glow(glow_settings(&self.config, self.state.form));
 
         self.bus.publish(Event::ChangeForm {
             form: self.state.form,
@@ -1371,21 +1372,18 @@ impl App {
             }
             // A trail-sized transparent window would swallow clicks far away
             // from the pet, so the stage stays click-through except when the
-            // cursor is actually over the pet's tight rect.  That keeps the
-            // pet clickable/draggable while walking with a trail.
-            let trail_stage = self.trail_pad_px() > 0;
+            // cursor is actually over the body.  If the body measurement is
+            // unavailable (some frames/very small scales), keep the window
+            // click-through instead of making the whole transparent stage
+            // draggable.
             let interactive = if self.drag.is_some() {
                 true
             } else if self.state.mode == Mode::Action && self.state.anim.auto_end {
                 false
             } else if self.renderer.body_hit().is_some() {
-                // Only the body is clickable; the rest of the stage is
-                // click-through, so the desktop stays usable around the pet.
                 self.cursor_over_body()
-            } else if trail_stage {
-                self.cursor_over_pet()
             } else {
-                true
+                false
             };
             if self.last_interactive != Some(interactive) {
                 if let Err(err) = window.set_cursor_hittest(interactive) {
@@ -2265,7 +2263,8 @@ impl App {
                 if glow_changed {
                     // Blur radius/opacity are baked into the glow passes when an
                     // animation loads, so pick them up by reloading the clip.
-                    self.renderer.set_glow(glow_settings(&self.config, self.state.form));
+                    self.renderer
+                        .set_glow(glow_settings(&self.config, self.state.form));
                     self.reload_preserving_frame(now);
                 }
                 true
@@ -2779,9 +2778,7 @@ fn parse_args() -> Result<Command> {
                 if i + 6 >= args.len() {
                     bail!("--render-frame needs <form> <kind> <slug> <frame> <scale> <out.png>");
                 }
-                let form = args[i + 1]
-                    .parse::<u8>()
-                    .context("form must be 1–5")?;
+                let form = args[i + 1].parse::<u8>().context("form must be 1–5")?;
                 let kind = args[i + 2].clone();
                 let slug = args[i + 3].clone();
                 let frame = args[i + 4]
@@ -2900,7 +2897,10 @@ fn shape_key(value: &serde_json::Value) -> Option<String> {
 }
 
 fn is_baked(value: &serde_json::Value) -> bool {
-    value.get("baked").and_then(|v| v.as_bool()).unwrap_or(false)
+    value
+        .get("baked")
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false)
 }
 
 /// Audits every animation's glow labels: `glowShapes` vs per-layer `nono.glow`
@@ -2939,7 +2939,9 @@ fn audit_glow(catalog: &Catalog) -> usize {
                 .and_then(|n| n.get("glowShapes"))
                 .and_then(|v| v.as_object());
             let table_shapes = table.map(|m| m.len()).unwrap_or(0);
-            let baked = table.map(|m| m.values().filter(|v| is_baked(v)).count()).unwrap_or(0);
+            let baked = table
+                .map(|m| m.values().filter(|v| is_baked(v)).count())
+                .unwrap_or(0);
             let mut layers_glow = 0usize;
             let mut layers_baked = 0usize;
             let mut shapes = HashSet::new();
@@ -2952,7 +2954,8 @@ fn audit_glow(catalog: &Catalog) -> usize {
                             layers_baked += 1;
                         }
                     }
-                    if let Some(shape) = layer_nono.and_then(|n| n.get("shape")).and_then(shape_key) {
+                    if let Some(shape) = layer_nono.and_then(|n| n.get("shape")).and_then(shape_key)
+                    {
                         shapes.insert(shape);
                     }
                 }
@@ -2967,7 +2970,9 @@ fn audit_glow(catalog: &Catalog) -> usize {
             matches += hit;
             if table_shapes > 0 && hit == 0 {
                 warnings += 1;
-                let keys: Vec<&String> = table.map(|m| m.keys().take(4).collect()).unwrap_or_default();
+                let keys: Vec<&String> = table
+                    .map(|m| m.keys().take(4).collect())
+                    .unwrap_or_default();
                 let layer_shapes: Vec<&String> = shapes.iter().take(4).collect();
                 println!(
                     "  glow warn {file}: glowShapes {table_shapes} shapes but no layer nono.shape matches (table {keys:?}, layers {layer_shapes:?})"

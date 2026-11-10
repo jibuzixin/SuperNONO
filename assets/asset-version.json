@@ -1,7 +1,7 @@
 {
-  "version": "2.0.0",
+  "version": "2.0.1",
   "date": "2026-11-10",
-  "note": "形态5 四个表情按画面语义重新命名（slug/文件/manifest/内部 key 全部同步）。",
+  "note": "形态2 开机首帧下移 0.34 画布单位，修正默认 1.5 倍缩放下的关机→开机轻微跳变。",
   "released": "2026-11-10",
-  "notes": "形态5 表情 id1 由 happy 改为 sad（悲哀），id2 angry 不变，id3 由 surprise 改为 love（喜欢），id4 由 sad 改为 happy（开心）。外部 expression:5:<旧slug> 的含义随之变化。"
+  "notes": "tuning: form2/action/boot offset_start y 1.17 -> 1.51；1.5 倍缩放时与关机末帧对齐，1.0/2.0 倍误差约 0.5 画布单位。"
 }

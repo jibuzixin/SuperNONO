@@ -433,7 +433,7 @@ impl Renderer {
             None => None,
         };
         let bytes = self.rgba8();
-        let stride = 4usize;
+        let stride = 1usize;
         let gw = (w + stride - 1) / stride;
         let gh = (h + stride - 1) / stride;
         let mut mask = vec![false; gw * gh];
@@ -491,7 +491,11 @@ impl Renderer {
         let pad_px = self.base_px.0;
         let anchor = self.spec_anchor;
         let mut seen = vec![false; gw * gh];
-        let mut best: Option<(usize, (usize, usize, usize, usize))> = None;
+        // Keep every substantial body-coloured island near the anchor, then
+        // union them.  Selecting only the largest island is wrong for poses
+        // where the black visor splits the white body into upper/lower bands
+        // (form 1): the old code put the hit circle on the lower band only.
+        let mut components: Vec<(usize, (usize, usize, usize, usize))> = Vec::new();
         for gy in 0..gh {
             for gx in 0..gw {
                 let idx = gy * gw + gx;
@@ -525,15 +529,35 @@ impl Renderer {
                 let ccx = ((min_x + max_x) as f32 * stride as f32 * 0.5 - pad_px) / scale;
                 let ccy = ((min_y + max_y) as f32 * stride as f32 * 0.5 - pad_px) / scale;
                 let dist = ((ccx - anchor.0).powi(2) + (ccy - anchor.1).powi(2)).sqrt();
-                if dist > 110.0 {
-                    continue;
-                }
-                if best.map(|(area, _)| count > area).unwrap_or(true) {
-                    best = Some((count, (min_x, min_y, max_x, max_y)));
+                if dist <= 110.0 {
+                    components.push((count, (min_x, min_y, max_x, max_y)));
                 }
             }
         }
-        let Some((_, (min_x, min_y, max_x, max_y))) = best else {
+        let max_count = components
+            .iter()
+            .map(|(count, _)| *count)
+            .max()
+            .unwrap_or(0);
+        if max_count == 0 {
+            return;
+        }
+        // Body shading can split into several islands; ignore only tiny
+        // sparkles/props (less than 1/8 of the largest body island).
+        let min_count = (max_count / 8).max(1);
+        let mut union: Option<(usize, usize, usize, usize)> = None;
+        for (count, (min_x, min_y, max_x, max_y)) in components {
+            if count < min_count {
+                continue;
+            }
+            union = Some(match union {
+                None => (min_x, min_y, max_x, max_y),
+                Some((x0, y0, x1, y1)) => {
+                    (x0.min(min_x), y0.min(min_y), x1.max(max_x), y1.max(max_y))
+                }
+            });
+        }
+        let Some((min_x, min_y, max_x, max_y)) = union else {
             return;
         };
         let cx = ((min_x + max_x) as f32 * stride as f32 * 0.5 - pad_px) / scale - anchor.0;
@@ -1581,6 +1605,24 @@ mod tests {
         assert!(radius > 5.0 && radius < 80.0, "radius {radius}");
         assert!(dy < 0.0, "body sits above the feet");
         assert!(dx.abs() < 30.0, "body near the anchor X");
+    }
+
+    #[test]
+    fn body_hit_is_stable_across_render_scales() {
+        let _guard = THORVG_LOCK.lock().unwrap();
+        let catalog = Catalog::load(assets_root()).unwrap();
+        let spec = catalog.walk_spec(1, Direction::Down).unwrap();
+        let mut small = test_renderer();
+        small.load(&spec, 1.5).unwrap();
+        let mut large = test_renderer();
+        large.load(&spec, 3.0).unwrap();
+        let a = small.body_hit().expect("body hit at 1.5x");
+        let b = large.body_hit().expect("body hit at 3x");
+        // The white body is split by the black visor; the hit circle must
+        // union the islands and stay in the same place at different scales.
+        assert!((a.0 - b.0).abs() < 0.8, "{a:?} vs {b:?}");
+        assert!((a.1 - b.1).abs() < 0.8, "{a:?} vs {b:?}");
+        assert!((a.2 - b.2).abs() < 1.2, "{a:?} vs {b:?}");
     }
 
     #[test]
