@@ -1,6 +1,6 @@
 {
   "format_version": 1,
-  "asset_version": "1.2.7",
+  "asset_version": "2.0.0",
   "name": "超能 NONO",
   "generated_by": "tools/build_catalog.py",
   "note": "运行时唯一素材入口；由各目录 manifest.json + meta.json 归一化生成，不要手改。",
@@ -2323,9 +2323,9 @@
       "expressions": [
         {
           "id": 1,
-          "slug": "happy",
-          "name": "开心",
-          "file": "nono-form5-expressions/nono5_exp_happy.json",
+          "slug": "sad",
+          "name": "悲哀",
+          "file": "nono-form5-expressions/nono5_exp_sad.json",
           "canvas": [
             65,
             96
@@ -2373,9 +2373,9 @@
         },
         {
           "id": 3,
-          "slug": "surprise",
-          "name": "惊讶",
-          "file": "nono-form5-expressions/nono5_exp_surprise.json",
+          "slug": "love",
+          "name": "喜欢",
+          "file": "nono-form5-expressions/nono5_exp_love.json",
           "canvas": [
             71,
             103
@@ -2398,9 +2398,9 @@
         },
         {
           "id": 4,
-          "slug": "sad",
-          "name": "悲哀",
-          "file": "nono-form5-expressions/nono5_exp_sad.json",
+          "slug": "happy",
+          "name": "开心",
+          "file": "nono-form5-expressions/nono5_exp_happy.json",
           "canvas": [
             81,
             130

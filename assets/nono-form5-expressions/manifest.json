@@ -12,12 +12,12 @@
   "expressions": [
     {
       "id": 1,
-      "slug": "happy",
-      "name": "开心",
-      "file": "nono5_exp_happy.json",
+      "slug": "sad",
+      "name": "悲哀",
+      "file": "nono5_exp_sad.json",
       "sourceFile": "exp/1_5.swf",
-      "bytes": 175270,
-      "sha256": "dc17a912801bf2a86dd934d74d3ebb80ad15a87e1d970f0043aacdcc306405c8",
+      "bytes": 175269,
+      "sha256": "dec81beebeaf032173d23def63d837dfd3919665e50f4be2d9c1515b8ba9b85a",
       "frames": 103,
       "canvas": [
         65,
@@ -39,7 +39,7 @@
         93.93
       ],
       "audio": {
-        "soundId": "exp_happy",
+        "soundId": "exp_sad",
         "file": null,
         "status": "missing-from-source",
         "trigger": "表情开始播放时（与动画 goToAndPlay(0) 同时）",
@@ -94,12 +94,12 @@
     },
     {
       "id": 3,
-      "slug": "surprise",
-      "name": "惊讶",
-      "file": "nono5_exp_surprise.json",
+      "slug": "love",
+      "name": "喜欢",
+      "file": "nono5_exp_love.json",
       "sourceFile": "exp/3_5.swf",
-      "bytes": 416898,
-      "sha256": "ab096807e443410cd83da4deb68c546d071e3e6f0e4a05c58d7f9a996422e01d",
+      "bytes": 416895,
+      "sha256": "56246f74da4eb6e3e74efcc55b4580c6bd2d6889e2ff1689fcf3e375abc31fc1",
       "frames": 110,
       "canvas": [
         71,
@@ -121,7 +121,7 @@
         102.48
       ],
       "audio": {
-        "soundId": "exp_surprise",
+        "soundId": "exp_love",
         "file": null,
         "status": "missing-from-source",
         "trigger": "表情开始播放时（与动画 goToAndPlay(0) 同时）",
@@ -135,12 +135,12 @@
     },
     {
       "id": 4,
-      "slug": "sad",
-      "name": "悲哀",
-      "file": "nono5_exp_sad.json",
+      "slug": "happy",
+      "name": "开心",
+      "file": "nono5_exp_happy.json",
       "sourceFile": "exp/4_5.swf",
-      "bytes": 245741,
-      "sha256": "eaeb0d6fb28ee2edc9406849a5c184ec9a41932d35b95fce4f08c2f8f315a016",
+      "bytes": 245744,
+      "sha256": "c26531d5e921d570d3600d279d6c44c5dcab210af0e1772d8f7fe57214d86706",
       "frames": 135,
       "canvas": [
         81,
@@ -162,7 +162,7 @@
         129.27
       ],
       "audio": {
-        "soundId": "exp_sad",
+        "soundId": "exp_happy",
         "file": null,
         "status": "missing-from-source",
         "trigger": "表情开始播放时（与动画 goToAndPlay(0) 同时）",

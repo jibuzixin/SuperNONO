@@ -1,7 +1,7 @@
 {
-  "version": "1.2.7",
+  "version": "2.0.0",
   "date": "2026-11-10",
-  "note": "形态5 召唤漩涡的 baked 辉光描边改为运行时辉光，消除 CPU 渲染卡顿。",
+  "note": "形态5 四个表情按画面语义重新命名（slug/文件/manifest/内部 key 全部同步）。",
   "released": "2026-11-10",
-  "notes": "形态5 召唤 shape29–35 的 6 组宽描边 glow 层在 CPU 上每帧约 300ms，导致实际只有 3fps；隐藏 baked glow 层、给主形状加 nono.glow（blur20/strength1），每帧降到约 10ms，25fps 稳定。光晕比原 baked 版本略锐。"
+  "notes": "形态5 表情 id1 由 happy 改为 sad（悲哀），id2 angry 不变，id3 由 surprise 改为 love（喜欢），id4 由 sad 改为 happy（开心）。外部 expression:5:<旧slug> 的含义随之变化。"
 }

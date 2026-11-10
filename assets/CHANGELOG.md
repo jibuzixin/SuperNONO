@@ -1,5 +1,22 @@
 # 资产变更日志
 
+## 2.0.0 — 2026-11-10
+
+形态 5 的四个表情此前是按「配置表名字」而不是画面语义命名，导致名字与实际动画不符。
+这次从底层统一修正了 **slug / 文件名 / manifest / meta / Lottie 内部 `nono.key` / 音效 ID**，
+不是只改显示名。
+
+| 源 id | 旧名字 | 旧 slug / 文件 | 新名字 | 新 slug / 文件 |
+|---|---|---|---|---|
+| 1 | 开心 | `happy` / `nono5_exp_happy.json` | 悲哀 | `sad` / `nono5_exp_sad.json` |
+| 2 | 生气 | `angry` / `nono5_exp_angry.json` | 生气（不变） | `angry` / `nono5_exp_angry.json` |
+| 3 | 惊讶 | `surprise` / `nono5_exp_surprise.json` | 喜欢 | `love` / `nono5_exp_love.json` |
+| 4 | 悲哀 | `sad` / `nono5_exp_sad.json` | 开心 | `happy` / `nono5_exp_happy.json` |
+
+注意：这是 ID 级变更。外部如果按 `expression:5:happy` / `expression:5:surprise` 调用，
+现在会得到修正后的语义（`happy` 是原 id4 的画面，`surprise` 已不存在，改为 `love`）。
+动画内容、画布、帧数、锚点、audio 绑定关系均未改，只交换/修正了名字。
+
 ## 1.2.7 — 2026-11-10
 
 - 形态 5 召唤的 `glow29`–`glow35`（7 层、每层 6 组 100–300 px 宽描边）在 CPU/ThorVG 上

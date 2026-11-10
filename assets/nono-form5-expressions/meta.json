@@ -15,9 +15,9 @@
   "expressions": [
     {
       "id": 1,
-      "slug": "happy",
-      "name": "开心",
-      "file": "nono5_exp_happy.json",
+      "slug": "sad",
+      "name": "悲哀",
+      "file": "nono5_exp_sad.json",
       "sourceFile": "exp/1_5.swf",
       "frames": 103,
       "layers": 40,
@@ -59,9 +59,9 @@
     },
     {
       "id": 3,
-      "slug": "surprise",
-      "name": "惊讶",
-      "file": "nono5_exp_surprise.json",
+      "slug": "love",
+      "name": "喜欢",
+      "file": "nono5_exp_love.json",
       "sourceFile": "exp/3_5.swf",
       "frames": 110,
       "layers": 60,
@@ -81,9 +81,9 @@
     },
     {
       "id": 4,
-      "slug": "sad",
-      "name": "悲哀",
-      "file": "nono5_exp_sad.json",
+      "slug": "happy",
+      "name": "开心",
+      "file": "nono5_exp_happy.json",
       "sourceFile": "exp/4_5.swf",
       "frames": 135,
       "layers": 35,
