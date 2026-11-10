@@ -90,6 +90,10 @@ struct App {
     bus: Bus,
     bus_rx: tokio::sync::broadcast::Receiver<nono_core::event::Envelope>,
     audio: AudioPlayer,
+    /// An action's sound waits until its first frame has actually been
+    /// presented.  Starting it at load time made startup summon play sound
+    /// before the (sometimes slow) first frame appeared.
+    pending_audio: Option<(PathBuf, bool)>,
     window: Option<Window>,
     presenter: Option<Box<dyn Presenter>>,
     tray: Option<TrayMenu>,
@@ -430,6 +434,7 @@ impl App {
             bus,
             bus_rx,
             audio: AudioPlayer::new(),
+            pending_audio: None,
             window: None,
             presenter: None,
             tray: None,
@@ -852,9 +857,13 @@ impl App {
         }
 
         self.audio.stop();
+        self.pending_audio = None;
         if self.state.mode == Mode::Action {
             if let Some(audio) = self.state.anim.audio.as_ref() {
-                self.audio.play(&audio.path, audio.loop_until_stop);
+                // Do not start the sound until `render_now` has presented the
+                // first frame; loading/blurring can take long enough for the
+                // audio to finish before the animation is visible.
+                self.pending_audio = Some((audio.path.clone(), audio.loop_until_stop));
             }
         }
 
@@ -894,6 +903,9 @@ impl App {
             return;
         }
         let (width, height) = self.present_now(now, true);
+        if let Some((path, loop_until_stop)) = self.pending_audio.take() {
+            self.audio.play(&path, loop_until_stop);
+        }
 
         self.last_frame_key = frame_key(frame);
         self.dirty = false;
@@ -1541,6 +1553,10 @@ impl App {
             // Keep the current phase across the load instead of letting the
             // clock advance while the Lottie scene is being parsed.
             self.state.compensate_pause(load_started.elapsed());
+            // Reload changes the glow margin too (that is how the glow toggle
+            // reaches the renderer); without updating it the window keeps the
+            // old stage size and the action gets clipped/displaced.
+            self.state.set_glow_pad(self.renderer.glow_pad());
         }
         self.apply_window_geometry();
         self.last_anim_id = self.state.anim.id.clone();
