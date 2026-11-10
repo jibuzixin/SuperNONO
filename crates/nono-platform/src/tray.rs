@@ -28,6 +28,7 @@ pub const MENU_TRAIL_RESET: &str = "trail_reset";
 pub const MENU_TRAIL_RELOAD: &str = "trail_reload";
 pub const MENU_TRAIL_OPEN_CONFIG: &str = "trail_open_config";
 pub const MENU_TRAIL_WATCH: &str = "trail_watch";
+pub const MENU_GLOW: &str = "glow";
 pub const MENU_SPEED_MOVE_DOWN: &str = "speed_move_down";
 pub const MENU_SPEED_MOVE_UP: &str = "speed_move_up";
 pub const MENU_SPEED_FOLLOW_DOWN: &str = "speed_follow_down";
@@ -73,6 +74,8 @@ pub struct TrayMenu {
     /// Item text is flipped between "hide" and "show" by the app.
     pub hide: MenuItem,
     pub sound: CheckMenuItem,
+    /// Runtime glow rebuilt from the assets' own filter parameters.
+    pub glow: CheckMenuItem,
     pub wander: CheckMenuItem,
     pub idle_animation: CheckMenuItem,
     /// Runtime-only toggle: follows the mouse for 20 seconds.
@@ -110,6 +113,7 @@ pub struct TrayMenu {
 impl TrayMenu {
     pub fn sync_checks(&self, config: &Config) {
         self.sound.set_checked(config.sound);
+        self.glow.set_checked(config.glow);
         self.wander.set_checked(config.wander);
         self.idle_animation.set_checked(config.idle_animation);
         for (form, item) in &self.form_items {
@@ -512,6 +516,7 @@ pub fn build_tray(
     keep_submenus.push(trail_root);
 
     let sound = CheckMenuItem::with_id(MENU_SOUND, "音效", true, config.sound, None);
+    let glow = CheckMenuItem::with_id(MENU_GLOW, "辉光", true, config.glow, None);
     let wander = CheckMenuItem::with_id(MENU_WANDER, "自由走动", true, config.wander, None);
     let idle_animation = CheckMenuItem::with_id(
         MENU_IDLE_ANIMATION,
@@ -543,6 +548,7 @@ pub fn build_tray(
     summon_root.append(&start_at_center)?;
     keep_items.push(summon.clone());
     menu.append(&sound)?;
+    menu.append(&glow)?;
     menu.append(&wander)?;
     menu.append(&idle_animation)?;
     menu.append(&follow)?;
@@ -570,6 +576,7 @@ pub fn build_tray(
         tray,
         hide: hide.clone(),
         sound,
+        glow,
         wander,
         idle_animation,
         follow,

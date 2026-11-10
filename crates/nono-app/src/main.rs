@@ -1858,6 +1858,19 @@ impl App {
                 }
                 self.save_config();
             }
+            MENU_GLOW => {
+                self.config.glow = !self.config.glow;
+                // Glow passes are baked when the clip loads, so rebuild the
+                // current animation with the new setting immediately.
+                self.renderer
+                    .set_glow(glow_settings(&self.config, self.state.form));
+                self.reload_preserving_frame(now);
+                if let Some(tray) = &self.tray {
+                    tray.sync_checks(&self.config);
+                }
+                self.save_config();
+                tracing::info!(enabled = self.config.glow, "glow toggled");
+            }
             MENU_WANDER => {
                 self.config.wander = !self.config.wander;
                 self.behavior.set_enabled(self.config.wander);
